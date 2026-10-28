@@ -3,6 +3,8 @@
 
 import argparse
 import csv
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +21,7 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
         raise ValueError("demux.method must be 'hybrid' or 'illumina'")
     for key in (
         "dorado_exec",
-        "seqtk_exec",
-        "reverse_barcode_fasta",
-        "reverse_barcode_arrangement",
+        "barcode_dir",
         "ont_barcode_mapping",
         "front_barcode_mapping",
         "reverse_barcode_mapping",
@@ -110,6 +110,23 @@ def read_manifest(
     return samples
 
 
+def demux_command(
+    config: dict[str, Any], run_fastq: Path, output_dir: Path
+) -> list[str]:
+    demux = config["demux"]
+    command = [
+        "bash",
+        str(Path(__file__).resolve().parent / f"scripts/demux_{demux['method']}.sh"),
+        "--input", str(run_fastq.resolve()),
+        "--output-dir", str(output_dir.resolve() / "demux"),
+        "--barcode-dir", str(demux["barcode_dir"]),
+        "--threads", str(demux["threads"]),
+    ]
+    if demux.get("dorado_exec"):
+        command += ["--dorado", str(demux["dorado_exec"])]
+    return command
+
+
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     print(f"Method: {config['demux']['method']}")
     print(f"Targets: {', '.join(config['targets'])}")
@@ -125,8 +142,8 @@ def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "ONT amplicon pipeline scaffold. Analysis execution is not "
-            "implemented; no outputs will be created."
+            "ONT amplicon pipeline scaffold. Only demultiplexing runs; later "
+            "stages are not implemented."
         )
     )
     parser.add_argument("run_fastq_gz", type=Path, help="Raw run FASTQ (.fastq.gz)")
@@ -147,14 +164,16 @@ def main() -> None:
     args = parser.parse_args()
     config, _ = load_config(args.config_dir)
     samples = read_manifest(args.manifest_tsv, config)
+    command = demux_command(config, args.run_fastq_gz, args.output_dir)
     if args.dry_run:
         print_plan(config, samples)
+        print(f"Demux command: {shlex.join(command)}")
         return
+    subprocess.run(command, check=True)
     parser.exit(
         status=1,
         message=(
-            "Pipeline execution is not implemented. Configuration was loaded; "
-            "no jobs were launched or outputs created.\n"
+            "Stages after demultiplexing are not implemented.\n"
         ),
     )
 

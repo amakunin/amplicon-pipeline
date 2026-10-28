@@ -5,13 +5,15 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/small"
 sys.path.insert(0, str(ROOT))
 
-from run_pipeline import load_config, read_manifest
+import run_pipeline
+from run_pipeline import demux_command, load_config, read_manifest
 
 
 class ScaffoldTests(unittest.TestCase):
@@ -22,6 +24,8 @@ class ScaffoldTests(unittest.TestCase):
             config["demux"]["reverse_barcode_mapping"],
             ROOT / "assets/barcodes/Sanger_custom_barcode_R.tsv",
         )
+        self.assertEqual(config["demux"]["barcode_dir"], ROOT / "assets/barcodes")
+        self.assertNotIn("seqtk_exec", config["demux"])
         self.assertEqual(
             config["targets"]["COI"], FIXTURE / "config/targets/COI.yaml"
         )
@@ -38,7 +42,6 @@ class ScaffoldTests(unittest.TestCase):
                 "demux:\n"
                 "  method: hybrid\n"
                 "  dorado_exec: bin/dorado\n"
-                "  seqtk_exec: /usr/bin/seqtk\n"
                 "  reverse_barcode_mapping: null\n"
             )
             (targets_dir / "COI.yaml").write_text("asv_calling: savont\n")
@@ -49,7 +52,6 @@ class ScaffoldTests(unittest.TestCase):
                 config["demux"]["dorado_exec"],
                 (config_dir / "bin/dorado").resolve(),
             )
-            self.assertEqual(config["demux"]["seqtk_exec"], Path("/usr/bin/seqtk"))
             self.assertIsNone(config["demux"]["reverse_barcode_mapping"])
 
     def test_read_fixture_manifest(self) -> None:
@@ -95,7 +97,7 @@ class ScaffoldTests(unittest.TestCase):
             "--dry-run",
         ):
             self.assertIn(argument, result.stdout)
-        self.assertIn("not implemented", result.stdout)
+        self.assertIn("Only demultiplexing runs", result.stdout)
 
     def test_missing_arguments(self) -> None:
         result = subprocess.run(
@@ -107,30 +109,43 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("required", result.stderr)
 
-    def test_execution_fails_without_creating_outputs(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            for profile in ("local", "lsf"):
-                with self.subTest(profile=profile):
-                    result = subprocess.run(
-                        [
-                            sys.executable,
-                            str(ROOT / "run_pipeline.py"),
-                            "run.fastq.gz",
-                            str(FIXTURE / "manifest.tsv"),
-                            str(FIXTURE / "config"),
-                            str(directory / "output"),
-                            "--profile",
-                            profile,
-                        ],
-                        cwd=directory,
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    )
-                    self.assertEqual(result.returncode, 1)
-                    self.assertIn("not implemented", result.stderr)
-                    self.assertEqual(list(directory.iterdir()), [])
+    def test_demux_command(self) -> None:
+        config, _ = load_config(FIXTURE / "config")
+        command = demux_command(config, Path("run.fastq.gz"), Path("out"))
+        self.assertEqual(command[:2], ["bash", str(ROOT / "scripts/demux_hybrid.sh")])
+        self.assertEqual(
+            command[2:],
+            [
+                "--input", str(Path("run.fastq.gz").resolve()),
+                "--output-dir", str(Path("out").resolve() / "demux"),
+                "--barcode-dir", str(ROOT / "assets/barcodes"),
+                "--threads", "4",
+                "--dorado", "/software/sciops/external/ont-dorado/0.8.2/bin/dorado",
+            ],
+        )
+
+        config["demux"]["method"] = "illumina"
+        config["demux"]["dorado_exec"] = None
+        command = demux_command(config, Path("run.fastq.gz"), Path("out"))
+        self.assertTrue(command[1].endswith("scripts/demux_illumina.sh"))
+        self.assertNotIn("--dorado", command)
+
+    def test_execution_runs_demux_then_stops(self) -> None:
+        argv = [
+            "run_pipeline.py",
+            "run.fastq.gz",
+            str(FIXTURE / "manifest.tsv"),
+            str(FIXTURE / "config"),
+            "out",
+        ]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+            run_pipeline.subprocess, "run"
+        ) as run:
+            with self.assertRaises(SystemExit) as raised:
+                run_pipeline.main()
+        self.assertEqual(raised.exception.code, 1)
+        run.assert_called_once()
+        self.assertIn("demux_hybrid.sh", run.call_args.args[0][1])
 
     def test_dry_run_prints_plan_without_creating_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -153,8 +168,10 @@ class ScaffoldTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            plan, demux_line = result.stdout.rsplit("Demux command: ", 1)
+            self.assertIn("demux_hybrid.sh", demux_line)
             self.assertEqual(
-                result.stdout,
+                plan,
                 "Method: hybrid\n"
                 "Targets: COI\n"
                 "Samples:\n"
@@ -177,7 +194,6 @@ class ScaffoldTests(unittest.TestCase):
                 "plot_summary.py",
             )
         ]
-        commands.append(["bash", str(ROOT / "scripts/demux_hybrid.sh")])
         with tempfile.TemporaryDirectory() as temporary:
             for command in commands:
                 with self.subTest(script=command[-1]):

@@ -5,10 +5,7 @@ targets:
 demux:
   method: hybrid
   dorado_exec: /software/sciops/external/ont-dorado/0.8.2/bin/dorado
-  seqtk_exec: /software/treeoflife/shpc/0.1.26/wrapper/quay.io/biocontainers/seqtk/1.4--he4a0461_1/bin/seqtk
-  ont_kit: SQK-NBD114-24
-  reverse_barcode_fasta: ../../../../assets/barcodes/Sanger_custom_barcode_R.fasta
-  reverse_barcode_arrangement: ../../../../assets/barcodes/Sanger_custom_barcode_R.tmol
+  barcode_dir: ../../../../assets/barcodes
   ont_barcode_mapping: ../../../../assets/barcodes/ONT_nb24_barcode.tsv
   reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv
   threads: 4

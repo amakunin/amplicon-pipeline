@@ -4,11 +4,8 @@ targets:
 
 demux:
   method: hybrid  # hybrid or illumina.
-  dorado_exec: null  # Required: absolute executable path.
-  seqtk_exec: null  # Required: absolute executable path.
-  ont_kit: SQK-NBD114-24
-  reverse_barcode_fasta: ../../assets/barcodes/Sanger_custom_barcode_R.fasta
-  reverse_barcode_arrangement: ../../assets/barcodes/Sanger_custom_barcode_R.tmol
+  dorado_exec: null  # Optional path to dorado; default: dorado from PATH.
+  barcode_dir: ../../assets/barcodes
   ont_barcode_mapping: ../../assets/barcodes/ONT_nb24_barcode.tsv
   reverse_barcode_mapping: ../../assets/barcodes/Sanger_custom_barcode_R.tsv
   threads: 4

@@ -129,7 +129,7 @@ existing COI fixture is not required.
 
 ## M4 - Demultiplexing
 
-[~]
+[x]
 
 **Goal:** both demultiplexing scripts are robust, standalone, config-driven,
 and ready to be called from the pipeline on the small mixed-target fixture.
@@ -177,7 +177,7 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 - **Review gate:** developer approves the Illumina interface and its
   output naming and flattening rules.
 
-### M4c - Shared demux contract [~]
+### M4c - Shared demux contract [x]
 - Define one output contract for both scripts: directory layout, per-sample
   FASTQ naming, counts file format, unclassified handling, cleanup and exit
   codes.
@@ -193,13 +193,16 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 - **Review gate:** developer approves the common contract and what stays
   method-specific.
 
-### M4d - Pipeline integration and tests [ ]
+### M4d - Pipeline integration and tests [x]
 - Driver calls the script chosen by `demux.method`, passing the config's
   `dorado` path, barcode paths and threads; it does not look for `seqtk`.
 - Tests (no Dorado needed in CI) cover command construction and the
   validation failures. Real Dorado runs on the small fixture are manual and
   recorded in the milestone notes.
 - Update the README and AGENTS.md for the conda and Dorado provisioning rule.
+- Config: `demux.barcode_dir` replaces per-file barcode keys; `seqtk_exec`
+  and `ont_kit` are removed; `dorado_exec` is optional. The driver runs only
+  the demux stage into `<output_dir>/demux`, then stops.
 - **Review gate:** developer approves the integration contract before M5.
 
 ## M5 - Single-target ampliseq execution

@@ -5,13 +5,13 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 
 ## Working rules
 
-- Work toward one top-level milestone at a time. Use lettered submilestones (for example, M3a and M3b) for distinct, reviewable implementation steps when a milestone needs them.
-- Before coding a submilestone, propose its scope, files and interfaces, data flow, exclusions, and verification. Wait for explicit approval. Keep the step within the budget in MILESTONES.md; split it first if needed.
-- After completing a submilestone, report the changes and verification, then stop at its review gate. Do not start the next submilestone or top-level milestone until the developer approves.
-- **Propose before coding.** Before writing code, post a short proposal in chat:
-  the files to touch, function names and signatures, the data flow, and what is
-  deliberately not handled. Wait for explicit approval. If the step does not
-  fit the step budget in MILESTONES.md, split it and say so.
+- Work toward one top-level milestone at a time. Use lettered submilestones
+  (for example, M3a and M3b) for distinct, reviewable implementation steps.
+- **Propose before coding.** Before writing code, post a short proposal in
+  chat: the files to touch, function names and signatures, the data flow, what
+  is deliberately not handled, and how it will be verified. Wait for explicit
+  approval. If the step does not fit the step budget in MILESTONES.md, split
+  it and say so.
 - **No unapproved structure.** Do not add files, modules, classes, CLI options,
   config keys, dependencies or output formats that the approved proposal did
   not name. Code goes where the milestone says; if unclear, ask.
@@ -21,9 +21,14 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
   defensive checks or error aggregation unless requested. Let standard Python
   errors surface (`KeyError`, `FileNotFoundError`, ...). Add a clear message
   only where the standard error would be confusing, and say where.
+- **Pass external tool errors through.** Run Dorado, seqtk, Nextflow and other
+  tools without capturing or rewrapping their output, so the user sees the
+  tool's own error message. Use `subprocess.run(check=True)` and let a
+  non-zero exit stop the run. Do not swallow or summarise tool errors.
 - **Report each step briefly:** files changed with approximate line counts,
-  what was verified and how to rerun it, and open questions. Do not chain steps
-  or run long unattended.
+  what was verified and how to rerun it, and open questions. Then stop at the
+  review gate: do not start the next submilestone or top-level milestone, chain
+  steps or run long unattended without developer approval.
 - Keep changes small and reviewable. Do not refactor unrelated code.
 - Update the README, this file or the milestone checklist only where a change
   makes them wrong. Do not expand documentation speculatively.
@@ -49,13 +54,17 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `tests/fixtures/small/` | Small mixed-target fixture; see its README |
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
-Stage scripts other than `run_pipeline.py` are currently placeholders.
+The demux scripts are implemented (contract in `scripts/README.md`); the other
+stage scripts are currently placeholders.
 
 ## Design decisions
 
 - **Fixed pipeline.** Stages run in a fixed order:
   `validate -> demultiplex -> prepare inputs -> ampliseq per target -> summarise ASVs -> summarise samples -> plot`.
   No module registry, configurable DAG or plugin framework.
+- **Tool provisioning.** The conda environment provides every tool except
+  Dorado (including `seqtk`, taken from `PATH`; no config key). Dorado is
+  set by `demux.dorado_exec`, else taken from `PATH`.
 - **Ampliseq** is called directly by the driver, once per target, pinned to
   version 3.0.0, from a stable per-target execution directory. Both the
   Nextflow cache and `work/` are kept for `-resume`.
@@ -79,14 +88,15 @@ Stage scripts other than `run_pipeline.py` are currently placeholders.
 - Target routing (one or several targets per demultiplexed FASTQ) and the
   manifest schema are undecided. See the milestones.
 - The raw run FASTQ is never passed directly to ampliseq.
-- Demultiplexing method is demux.method (hybrid or illumina); the manifest requirements follow it (see MILESTONES.md M2).
+- **Demultiplexing method** is `demux.method` (hybrid or illumina); the
+  manifest requirements follow it (see MILESTONES.md M2).
 
 ## Coding conventions
 
 - Python 3.12, standard library plus PyYAML. Other dependencies need approval.
   Use type hints and `pathlib`.
 - Scripts take explicit arguments, fail with a non-zero exit code and a clear
-  message, and do not read hidden state or environment.
+  message, and do not read hidden state or environment (tools on `PATH` excepted).
 - Shell scripts start with `set -euo pipefail`, quote variables and must pass
   `bash -n`.
 - No hard-coded site paths, usernames or unconditional `module load`. Anything
@@ -99,7 +109,7 @@ Stage scripts other than `run_pipeline.py` are currently placeholders.
 
 ```bash
 python -m unittest discover -s tests -v
-bash -n scripts/demux_hybrid.sh
+bash -n scripts/demux_hybrid.sh scripts/demux_illumina.sh
 ```
 
 - Keep tests few and readable: one test file per feature, the happy path on the

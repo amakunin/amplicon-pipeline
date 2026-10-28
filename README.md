@@ -44,9 +44,9 @@ with `conda env update --name amplicon-pipeline --file env.yaml`.
 
 Nextflow, its Java runtime, Singularity/Apptainer (or Docker), and Dorado 0.8.2
 remain external tools supplied by your installation. Make the launcher and
-container runtime available in the execution shell, and configure the Dorado
-and seqtk executable paths in your run configuration. After activation,
-`command -v seqtk` reports the environment's seqtk path. The environment alone
+container runtime available in the execution shell. Dorado is found through
+`demux.dorado_exec` in your run configuration, or on `PATH` if unset; seqtk
+always comes from the activated environment's `PATH`. The environment alone
 does not make the scaffold an executable analysis pipeline.
 
 ### Using the environment with a coding agent
@@ -92,8 +92,8 @@ python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile
 
 Copy [config/example/](config/example/) to a run-specific directory and edit:
 
-- [pipeline.yaml](config/example/pipeline.yaml): targets to run, Dorado/seqtk
-  executables and barcode resources.
+- [pipeline.yaml](config/example/pipeline.yaml): targets to run, demultiplexing
+  method, optional Dorado path and barcode resources.
 - [targets/COI.yaml](config/example/targets/COI.yaml): one file per target, using
   native ampliseq parameters (primers, reference database, Savont options).
   The pipeline sets `input` and `outdir` itself.
@@ -124,7 +124,7 @@ those with no reads, with a reason for any failure or exclusion.
 
 ```bash
 python -m unittest discover -s tests -v
-bash -n scripts/demux_hybrid.sh
+bash -n scripts/demux_hybrid.sh scripts/demux_illumina.sh
 ```
 
 The tests check the scaffold interface, barcode consistency and the

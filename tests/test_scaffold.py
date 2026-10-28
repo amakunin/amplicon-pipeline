@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/coi_small"
 sys.path.insert(0, str(ROOT))
 
-from run_pipeline import load_config
+from run_pipeline import load_config, read_manifest
 
 
 class ScaffoldTests(unittest.TestCase):
@@ -52,6 +52,32 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(config["demux"]["seqtk_exec"], Path("/usr/bin/seqtk"))
             self.assertIsNone(config["demux"]["reverse_barcode_mapping"])
 
+    def test_read_fixture_manifest(self) -> None:
+        config, _ = load_config(FIXTURE / "config")
+
+        samples = read_manifest(FIXTURE / "manifest.tsv", config)
+
+        self.assertEqual(len(samples), 5)
+        self.assertEqual(
+            samples[0]["barcode_indices"],
+            {"ont_barcode": "09", "rear_barcode": "01"},
+        )
+        self.assertEqual(samples[0]["well_id"], "A1")
+
+    def test_read_manifest_reports_unknown_barcode_with_sample(self) -> None:
+        config, _ = load_config(FIXTURE / "config")
+        manifest = (FIXTURE / "manifest.tsv").read_text().replace(
+            "AACGTGAT", "UNKNOWN"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest_path = Path(temporary) / "manifest.tsv"
+            manifest_path.write_text(manifest)
+
+            with self.assertRaisesRegex(
+                ValueError, "Unknown rear_barcode .*ANLCx_001_A1"
+            ):
+                read_manifest(manifest_path, config)
+
     def test_help(self) -> None:
         result = subprocess.run(
             [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],
@@ -86,7 +112,7 @@ class ScaffoldTests(unittest.TestCase):
                             sys.executable,
                             str(ROOT / "run_pipeline.py"),
                             "run.fastq.gz",
-                            "manifest.tsv",
+                            str(FIXTURE / "manifest.tsv"),
                             str(FIXTURE / "config"),
                             str(directory / "output"),
                             "--profile",

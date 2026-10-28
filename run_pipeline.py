@@ -2,6 +2,7 @@
 """Entrypoint scaffold for the fixed-order amplicon pipeline."""
 
 import argparse
+import csv
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,73 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
     return config, targets
 
 
+def load_barcode_mapping(path: Path) -> dict[str, str]:
+    with path.open(newline="") as handle:
+        return {
+            row["tag_sequence"].casefold(): row["index"]
+            for row in csv.DictReader(handle, delimiter="\t")
+        }
+
+
+def read_manifest(
+    manifest_path: Path, config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    method = config["demux"]["method"]
+    barcode_mappings = (
+        {
+            "ont_barcode": load_barcode_mapping(
+                config["demux"]["ont_barcode_mapping"]
+            ),
+            "rear_barcode": load_barcode_mapping(
+                config["demux"]["reverse_barcode_mapping"]
+            ),
+        }
+        if method == "hybrid"
+        else {
+            "front_barcode": load_barcode_mapping(
+                config["demux"]["front_barcode_mapping"]
+            ),
+            "rear_barcode": load_barcode_mapping(
+                config["demux"]["reverse_barcode_mapping"]
+            ),
+        }
+    )
+    required_columns = ("sample_id", *barcode_mappings)
+    samples = []
+    sample_ids = set()
+    barcode_pairs = set()
+
+    with manifest_path.open(newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            for column in required_columns:
+                row[column]
+            sample_id = row["sample_id"]
+            if sample_id in sample_ids:
+                raise ValueError(f"Duplicate sample_id: {sample_id}")
+            sample_ids.add(sample_id)
+
+            indices = {}
+            for column, mapping in barcode_mappings.items():
+                barcode = row[column]
+                try:
+                    indices[column] = mapping[barcode.casefold()]
+                except KeyError:
+                    raise ValueError(
+                        f"Unknown {column} {barcode!r} for sample {sample_id}"
+                    ) from None
+
+            barcode_pair = tuple(indices.values())
+            if barcode_pair in barcode_pairs:
+                raise ValueError(
+                    f"Duplicate barcode pair for sample {sample_id}: {barcode_pair}"
+                )
+            barcode_pairs.add(barcode_pair)
+            row["barcode_indices"] = indices
+            samples.append(row)
+
+    return samples
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -60,7 +128,8 @@ def main() -> None:
         help="Execution environment (default: local; not yet implemented)",
     )
     args = parser.parse_args()
-    load_config(args.config_dir)
+    config, _ = load_config(args.config_dir)
+    read_manifest(args.manifest_tsv, config)
     parser.exit(
         status=1,
         message=(

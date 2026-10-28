@@ -17,13 +17,15 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
     if demux["method"] not in ("hybrid", "illumina"):
         raise ValueError("demux.method must be 'hybrid' or 'illumina'")
     for key in (
+        "dorado_exec",
+        "seqtk_exec",
         "reverse_barcode_fasta",
         "reverse_barcode_arrangement",
         "ont_barcode_mapping",
         "front_barcode_mapping",
         "reverse_barcode_mapping",
     ):
-        if key in demux:
+        if key in demux and demux[key] is not None:
             demux[key] = (config_dir / demux[key]).resolve()
 
     targets = {}

@@ -49,7 +49,7 @@ through unvalidated. Barcodes are matched case-insensitively against the
 mapping files named in `pipeline.yaml`. Sample IDs must be unique, and so must
 each forward/rear barcode pair. No `target` column until M4.
 
-### M2a - Load configuration [ ]
+### M2a - Load configuration [~]
 - Load `pipeline.yaml` and the target YAML files into plain dicts. Relative
   paths resolve against the config directory.
 - Check only that `demux.method` is a known value; other problems surface as

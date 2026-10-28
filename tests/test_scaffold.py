@@ -27,6 +27,31 @@ class ScaffoldTests(unittest.TestCase):
         )
         self.assertEqual(targets["COI"]["asv_calling"], "savont")
 
+    def test_load_config_resolves_relative_executable_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            config_dir = Path(temporary)
+            targets_dir = config_dir / "targets"
+            targets_dir.mkdir()
+            (config_dir / "pipeline.yaml").write_text(
+                "targets:\n"
+                "  COI: targets/COI.yaml\n"
+                "demux:\n"
+                "  method: hybrid\n"
+                "  dorado_exec: bin/dorado\n"
+                "  seqtk_exec: /usr/bin/seqtk\n"
+                "  reverse_barcode_mapping: null\n"
+            )
+            (targets_dir / "COI.yaml").write_text("asv_calling: savont\n")
+
+            config, _ = load_config(config_dir)
+
+            self.assertEqual(
+                config["demux"]["dorado_exec"],
+                (config_dir / "bin/dorado").resolve(),
+            )
+            self.assertEqual(config["demux"]["seqtk_exec"], Path("/usr/bin/seqtk"))
+            self.assertIsNone(config["demux"]["reverse_barcode_mapping"])
+
     def test_help(self) -> None:
         result = subprocess.run(
             [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],

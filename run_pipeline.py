@@ -110,6 +110,18 @@ def read_manifest(
     return samples
 
 
+def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
+    print(f"Method: {config['demux']['method']}")
+    print(f"Targets: {', '.join(config['targets'])}")
+    print("Samples:")
+    for sample in samples:
+        indices = ", ".join(
+            f"{name}={index}"
+            for name, index in sample["barcode_indices"].items()
+        )
+        print(f"  {sample['sample_id']}: {indices}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -127,9 +139,17 @@ def main() -> None:
         default="local",
         help="Execution environment (default: local; not yet implemented)",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the loaded plan without creating outputs or running analysis",
+    )
     args = parser.parse_args()
     config, _ = load_config(args.config_dir)
-    read_manifest(args.manifest_tsv, config)
+    samples = read_manifest(args.manifest_tsv, config)
+    if args.dry_run:
+        print_plan(config, samples)
+        return
     parser.exit(
         status=1,
         message=(

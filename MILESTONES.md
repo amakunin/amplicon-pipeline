@@ -57,14 +57,14 @@ each forward/rear barcode pair. No `target` column until M4.
 - One small test: the fixture config loads.
 - **Review gate:** developer approves the loading structure.
 
-### M2b - Read the manifest [ ]
+### M2b - Read the manifest [x]
 - Read the manifest for the chosen method, look up barcodes in the mappings
   and report an unknown barcode with its sample name. Also report duplicate
   sample IDs and duplicate barcode pairs.
 - One small test on the fixture manifest, plus one failing case.
 - **Review gate:** developer approves the manifest schema as implemented.
 
-### M2c - Dry run [ ]
+### M2c - Dry run [x]
 - Add `--dry-run`: print what was loaded (method, targets, samples with
   barcode indices) and exit without creating anything. Without it, stop after
   loading with "not implemented".

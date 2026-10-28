@@ -87,7 +87,12 @@ class ScaffoldTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         for argument in (
-            "run_fastq_gz", "manifest_tsv", "config_dir", "output_dir", "--profile"
+            "run_fastq_gz",
+            "manifest_tsv",
+            "config_dir",
+            "output_dir",
+            "--profile",
+            "--dry-run",
         ):
             self.assertIn(argument, result.stdout)
         self.assertIn("not implemented", result.stdout)
@@ -126,6 +131,42 @@ class ScaffoldTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 1)
                     self.assertIn("not implemented", result.stderr)
                     self.assertEqual(list(directory.iterdir()), [])
+
+    def test_dry_run_prints_plan_without_creating_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            output_dir = directory / "output"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "run_pipeline.py"),
+                    "run.fastq.gz",
+                    str(FIXTURE / "manifest.tsv"),
+                    str(FIXTURE / "config"),
+                    str(output_dir),
+                    "--dry-run",
+                ],
+                cwd=directory,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Method: hybrid", result.stdout)
+            self.assertIn("Targets: COI", result.stdout)
+            for sample_id, rear_index in (
+                ("ANLCx_001_A1", "01"),
+                ("ANLCx_001_B1", "02"),
+                ("ANLCx_001_C1", "03"),
+                ("ANLCx_001_D1", "04"),
+                ("ANLCx_001_E1", "05"),
+            ):
+                self.assertIn(
+                    f"{sample_id}: ont_barcode=09, rear_barcode={rear_index}",
+                    result.stdout,
+                )
+            self.assertEqual(list(directory.iterdir()), [])
 
     def test_stage_placeholders_fail_explicitly(self) -> None:
         commands = [

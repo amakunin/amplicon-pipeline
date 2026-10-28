@@ -45,10 +45,20 @@ In a shell script, use `set -euo pipefail` so helper errors cannot be hidden by
 gzip. Use new output paths and validate before replacing an existing fixture.
 Do not regenerate the current fixture just to test these commands.
 
-The first helper matches either `cataaagatattgg` or `gtgaccaaaaaatca`
-case-insensitively in the sequence line, then emits sorted unique read IDs.
-This is the existing fixture-selection heuristic, not production primer
-assignment or a complete test for COI specificity.
+The first helper emits all read IDs by default, sorted and deduplicated.
+For optional sequence filtering, supply `--motifs` with a case-insensitive
+AWK extended regular expression. The original COI selection can be requested
+explicitly:
+
+```bash
+bash tests/helpers/extract_read_ids.sh \
+    --motifs 'cataaagatattgg|gtgaccaaaaaatca' "$INPUT_FOR_ID_SELECTION" \
+    > selected_ids.txt
+```
+
+This motif filter is a fixture-selection heuristic, not production primer
+assignment or a complete test for COI specificity. For mixed-target selection,
+omit the filter to retain all reads from the chosen sample subset.
 
 The second helper recovers complete four-line FASTQ records by ID, preserving
 source order and original headers. Both helpers accept plain or gzipped FASTQ.

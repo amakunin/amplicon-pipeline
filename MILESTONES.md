@@ -94,6 +94,37 @@ and expected coverage of both methods and multiple targets is documented.
 **Review gate:** developer approves the fixture and expectations. Retiring the
 existing COI fixture is not required.
 
+### M3a - Prepare mixed-target read selection [ ]
+- Agree which samples and targets the fixture should cover and how reads
+  will be selected.
+- Adapt the read-ID extraction helper for the agreed mixed-target selection;
+  retain raw-read recovery with the retrieval helper.
+- Update helper tests and preparation instructions.
+- **Review gate:** developer approves the selection behavior before preparing
+  the new dataset.
+
+### M3b - Establish the small fixture [ ]
+- Developer supplies selected read IDs, recovered raw reads and an updated
+  manifest with real barcodes.
+- Rename the primary fixture directory to `tests/fixtures/small/` and update
+  its configuration for the selected targets and both demultiplexing methods.
+- Record provenance, redistribution approval, checksums and developer-approved
+  expectations, including expected samples with no reads. Mark outcomes not
+  yet verified by analysis.
+- **Review gate:** developer approves the fixture contents and expectations.
+
+### M3c - Align tests and documentation [ ]
+- Update fixture references and assertions to the approved samples, barcode
+  indices and configured targets.
+- Verify FASTQ integrity, unique read IDs, agreement with the selected-ID
+  list, checksums, and configuration/manifest loading for both methods.
+- Verify dry-run output and no output creation; retain synthetic helper and
+  failure tests.
+- Update fixture documentation and repository references affected by the rename.
+- **Review gate:** tests pass and developer approves the fixture as the
+  integration baseline. Actual demultiplexing and ampliseq outcomes are
+  validated in M4-M6.
+
 ## M4 - Hybrid and Illumina demultiplexing
 
 [ ]

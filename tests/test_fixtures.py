@@ -107,15 +107,23 @@ class ReadHelperTests(unittest.TestCase):
                     fastq = directory / ("reads.fastq.gz" if compressed else "reads.fastq")
                     if compressed:
                         with gzip.open(fastq, "wt") as handle:
-                            handle.write(record + other)
+                            handle.write(other + record + other)
                     else:
-                        fastq.write_text(record + other)
-                    extracted = subprocess.run(
-                        ["bash", str(HELPERS / "extract_read_ids.sh"), str(fastq)],
-                        capture_output=True, text=True, check=False,
-                    )
-                    self.assertEqual(extracted.returncode, 0, extracted.stderr)
-                    self.assertEqual(extracted.stdout, "read1\n")
+                        fastq.write_text(other + record + other)
+                    for options, expected in (
+                        ([], "read1\nread2\n"),
+                        (["--motifs", "cataaagatattgg|TTTT"], "read1\n"),
+                    ):
+                        with self.subTest(options=options):
+                            extracted = subprocess.run(
+                                [
+                                    "bash", str(HELPERS / "extract_read_ids.sh"),
+                                    *options, str(fastq),
+                                ],
+                                capture_output=True, text=True, check=False,
+                            )
+                            self.assertEqual(extracted.returncode, 0, extracted.stderr)
+                            self.assertEqual(extracted.stdout, expected)
                     retrieved = subprocess.run(
                         ["bash", str(HELPERS / "retrieve_reads.sh"), str(ids), str(fastq)],
                         capture_output=True, text=True, check=False,
@@ -149,6 +157,19 @@ class ReadHelperTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("Usage:", result.stderr)
+        for arguments in (
+            ["--motifs"],
+            ["--motifs", "ACGT"],
+            ["--motifs", "", "reads.fastq"],
+            ["--unknown", "reads.fastq"],
+        ):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run(
+                    ["bash", str(HELPERS / "extract_read_ids.sh"), *arguments],
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("Usage:", result.stderr)
 
 
 if __name__ == "__main__":

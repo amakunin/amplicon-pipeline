@@ -5,9 +5,9 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 
 ## Working rules
 
-- Work on one milestone step at a time, in order. After each step, stop at its
-  review gate. Do not start the next step, or add anything beyond the current
-  one, without developer approval.
+- Work toward one top-level milestone at a time. Use lettered submilestones (for example, M3a and M3b) for distinct, reviewable implementation steps when a milestone needs them.
+- Before coding a submilestone, propose its scope, files and interfaces, data flow, exclusions, and verification. Wait for explicit approval. Keep the step within the budget in MILESTONES.md; split it first if needed.
+- After completing a submilestone, report the changes and verification, then stop at its review gate. Do not start the next submilestone or top-level milestone until the developer approves.
 - **Propose before coding.** Before writing code, post a short proposal in chat:
   the files to touch, function names and signatures, the data flow, and what is
   deliberately not handled. Wait for explicit approval. If the step does not

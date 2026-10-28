@@ -1,16 +1,16 @@
 # Milestones
 
-Each milestone is split into small steps that the developer reviews one at a
-time, following [AGENTS.md](AGENTS.md). After each step the developer reviews
-the code, records decisions and adjusts later steps before the next starts.
+For overall development guidelines, see [AGENTS.md](AGENTS.md).
+
+Top-level milestones define feature goals, overall completion criteria, and major decisions. Add lettered submilestones only for meaningful implementation chunks that can be reviewed independently. Each submilestone states its scope and review gate; steps follow in order, and work stops at each gate for developer approval.
 
 **Step budget:** a step touches at most about 3 files and adds about 100-150
 lines of code, excluding the fixture and docs. If it does not fit, split it
 before starting. Each step begins with a structure proposal (see AGENTS.md).
 
 Status: `[ ]` not started, `[~]` in progress, `[x]` done and reviewed.
-Milestones after M3 are deliberately less detailed; refine them at the review
-gate before them.
+Future milestones remain at feature level; agree their submilestones at the
+review gate before starting them.
 
 ## M0 - Scaffold (done)
 
@@ -47,7 +47,8 @@ running any analysis. All code stays in `run_pipeline.py` for now.
 `front_barcode` and `rear_barcode` for `illumina`; other columns are carried
 through unvalidated. Barcodes are matched case-insensitively against the
 mapping files named in `pipeline.yaml`. Sample IDs must be unique, and so must
-each forward/rear barcode pair. No `target` column until M4.
+each forward/rear barcode pair. Targets come from configuration, not the
+manifest; every configured target runs against the demultiplexed samples.
 
 ### M2a - Load configuration [x]
 - Load `pipeline.yaml` and the target YAML files into plain dicts. Relative
@@ -72,40 +73,50 @@ each forward/rear barcode pair. No `target` column until M4.
   the plan.
 - **Review gate:** developer checks the dry-run output.
 
-## M3 - Demultiplexing
+## M3 - Mixed-target integration fixture
 
 [ ]
 
-**Goal:** `scripts/demux_hybrid.sh` demultiplexes the fixture.
+**Goal:** one small, realistic mixed-amplicon dataset supports integration
+testing from demultiplexing through plots.
 
 **Tasks**
-- Adapt the prototype's hybrid Dorado logic, with executables and resources
-  from configuration and no `module load`.
-- Produce per-sample FASTQs, a barcode mapping and read counts in `demux/`.
-- Compare counts with `tests/fixtures/coi_small/expected_demux.tsv`.
-- Record the manual run, including commands and versions.
+- Developer prepares raw reads containing multiple amplicons, with a manifest
+  and configurations for both hybrid and Illumina demultiplexing.
+- Record provenance, redistribution approval, checksums and known expectations;
+  distinguish these from results awaiting validation at later milestones.
+- Establish the fixture as the primary integration dataset. Keep small
+  synthetic tests for errors and edge cases; scaling is covered in M10.
 
-**Done when:** the fixture gives positive counts for A1, C1 and E1 and zero
-for B1 and D1, and the script fails clearly on bad input.
+**Done when:** the dataset and configuration load, its integrity is verified,
+and expected coverage of both methods and multiple targets is documented.
 
-**Review gate:** developer checks the counts and the target-routing evidence
-below.
+**Review gate:** developer approves the fixture and expectations. Retiring the
+existing COI fixture is not required.
 
-## M4 - Target routing investigation
+## M4 - Hybrid and Illumina demultiplexing
 
 [ ]
 
-**Goal:** find out whether a demultiplexed FASTQ holds one target or several,
-before connecting it to ampliseq.
+**Goal:** both demultiplexing methods produce consistent downstream inputs
+and account for all expected samples.
 
 **Tasks**
-- Report only: summarise primer matches per sample on the fixture and on any
-  mixed-target data the developer provides.
-- Propose a routing policy with its limits. Do not implement it.
+- Adapt the developer-provided hybrid and Illumina scripts, with executables
+  and resources from configuration and no unconditional site setup.
+- Produce per-sample FASTQs, barcode mappings and read counts in `demux/`.
+- Validate both methods against the mixed-target fixture and record commands,
+  versions and counts.
+- Check dependencies when used, fail clearly and preserve previous results;
+  establish safe rerun handling for demultiplexing.
 
-**Review gate:** developer decides the routing policy. This shapes M5 onward.
+**Done when:** both methods meet the approved fixture expectations, including
+samples with no reads, and fail clearly on bad input.
 
-## M5 - Single-target vertical slice (COI)
+**Review gate:** developer approves counts and downstream inputs for both
+methods.
+
+## M5 - Single-target ampliseq execution
 
 [ ]
 
@@ -118,27 +129,48 @@ before connecting it to ampliseq.
   `lsf` profiles, stable execution directory, retained cache and `work/`).
 - Handle empty samples, which cannot be submitted as empty FASTQs, without
   losing track of them.
-- Run the fixture end to end on LSF and record the outputs, including the
-  actual Savont filenames.
+- Run one configured target on the mixed-target fixture and record the
+  outputs, including the actual Savont filenames.
+- Check dependencies when used and validate completion against relevant
+  inputs and configuration. Test interrupted and changed-config reruns;
+  never remove previous results automatically.
 
-**Done when:** `output_dir` has the layout in the README for COI and failures
-stop the run with a clear message.
+**Done when:** one target has the output layout in the README, safe resume is
+verified, and failures stop the run with a clear message.
 
-**Review gate:** developer inspects the real Savont outputs. Do not start
-summaries before then.
+**Review gate:** developer approves single-target results and rerun behavior.
 
-## M6 - ASV summaries
+## M6 - Multi-target ampliseq execution
+
+[ ]
+
+**Goal:** every target listed in configuration runs against the demultiplexed
+samples, with independent outputs and execution state.
+
+**Tasks**
+- Extend the single-target workflow to all configured targets, without
+  preassigning samples or reads to targets in the driver.
+- Validate the mixed-target fixture across targets, retaining sample/target
+  accounting and safe rerun behavior.
+
+**Done when:** all configured targets produce distinct results and execution
+state, with empty or failed sample/target outcomes accounted for.
+
+**Review gate:** developer inspects multi-target results and published Savont
+outputs before summary schemas are defined.
+
+## M7 - ASV summaries
 
 [ ]
 
 **Goal:** stable ASV count, sequence and taxonomy tables from Savont outputs.
 
-**Tasks:** implement `scripts/summarise_asvs.py` against the filenames found in
-M5, with tests on small captured output.
+**Tasks:** implement `scripts/summarise_asvs.py` against the outputs verified
+in M5-M6, with tests on small captured output.
 
 **Review gate:** developer approves the table schemas.
 
-## M7 - Sample summaries
+## M8 - Sample summaries
 
 [ ]
 
@@ -153,7 +185,7 @@ M5, with tests on small captured output.
 
 **Review gate:** developer agrees the QC definitions and denominators.
 
-## M8 - Plots
+## M9 - Summary plots
 
 [ ]
 
@@ -163,22 +195,24 @@ M5, with tests on small captured output.
 
 **Review gate:** developer reviews the plots on real output.
 
-## M9 - Robustness
+## M10 - Full-scale validation
 
 [ ]
 
-**Goal:** safe reruns and clear failures.
+**Goal:** validate the complete pipeline on a real ONT run at production scale.
 
 **Tasks**
-- Completion records, with checks of inputs and config on restart. Resume
-  must not rely on the existence of output files alone.
-- Dependency checks (Nextflow, container runtime, Dorado, seqtk).
-- Never remove previous results automatically.
-- Multiple targets in one run, if the routing policy needs them.
+- Developer runs the pipeline and reviews results, resource use and
+  operational behavior.
+- Feed observed failures and scaling issues back into focused code fixes.
+- Verify end-to-end sample/target accounting, reruns and result preservation.
 
-**Review gate:** developer tests an interrupted and a changed-config rerun.
+**Done when:** the full run completes, results are reviewed and blocking
+issues are resolved.
 
-## M10 - First release
+**Review gate:** developer approves production-scale behavior for release.
+
+## M11 - First release
 
 [ ]
 

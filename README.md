@@ -1,82 +1,111 @@
 # Amplicon pipeline
 
-Scaffold for an ONT amplicon sequencing pipeline combining barcode
-demultiplexing, nf-core/ampliseq, ASV summaries, sample annotations and plots.
+An Oxford Nanopore (ONT) amplicon sequencing pipeline. Given a raw run FASTQ
+and a sample manifest, it will:
 
-**Status:** only the entrypoint interface and configuration templates exist.
-Execution exits with an explicit error and creates no outputs. Stage scripts
-are placeholders, not working analysis tools.
+1. demultiplex reads by ONT and custom forward/reverse barcodes (Dorado),
+2. infer ASVs and assign taxonomy per target with
+   [nf-core/ampliseq](https://nf-co.re/ampliseq) 3.0.0 (Savont),
+3. summarise ASVs and per-sample outcomes into stable tables,
+4. plot the results.
 
-## Layout
+> **Status: scaffold.** Only the command-line interface, configuration
+> templates, barcode assets and a small test fixture exist. Running the
+> pipeline exits with an explicit error and creates no outputs. See
+> [MILESTONES.md](MILESTONES.md) for progress and the development plan.
 
-- [run_pipeline.py](run_pipeline.py): fixed-order orchestration entrypoint.
-- [scripts/demux_hybrid.sh](scripts/demux_hybrid.sh): planned adaptation of the
-  existing Dorado hybrid demultiplexing logic.
-- [scripts/prepare_inputs.py](scripts/prepare_inputs.py): barcode/sample mapping
-  and target-specific ampliseq samplesheets.
-- [scripts/summarise_asvs.py](scripts/summarise_asvs.py): Savont counts, sequences
-  and taxonomy adapted to stable tables.
-- [scripts/summarise_samples.py](scripts/summarise_samples.py): manifest-driven
-  sample annotations and explicit QC outcomes.
-- [scripts/plot_summary.py](scripts/plot_summary.py): plots from summary tables.
-- [config/example/](config/example/): configuration to copy and customise.
-- [assets/barcodes/](assets/barcodes/): bundled custom F/R arrangements,
-  sequences and barcode mappings; see [asset provenance](assets/barcodes/README.md).
-- [tests/fixtures/coi_small/](tests/fixtures/coi_small/): first COI fixture,
-  expected demux outcomes and small-test LSF settings.
-- [tests/helpers/](tests/helpers/): read-subsetting helpers, not production
-  pipeline stages. See [fixture preparation](tests/fixtures/coi_small/README.md).
-- [tests/test_scaffold.py](tests/test_scaffold.py): entrypoint and placeholder
-  smoke tests using the Python standard library.
+## Requirements
 
-No module registry, configurable DAG or plugin framework is planned. Ampliseq
-will be called directly by the driver, once per target, pinned to version 3.0.0.
+Not all of these are used yet; they are what the finished pipeline will need.
 
-## Intended interface
+- Python 3.12 (the scaffold uses the standard library only)
+- [Nextflow](https://www.nextflow.io/) and a container runtime (Docker,
+  Singularity or Apptainer)
+- [Dorado](https://github.com/nanoporetech/dorado) 0.8.2 and
+  [seqtk](https://github.com/lh3/seqtk)
+- A SINTAX reference database for each target (for COI, MIDORI2 or the
+  ampliseq built-in `coidb`)
+- Optionally an LSF cluster (`--profile lsf`)
+
+## Installation
 
 ```bash
+git clone https://github.com/<owner>/amplicon-pipeline.git
+cd amplicon-pipeline
+conda env create --file env.yaml
+conda activate amplicon-pipeline
 python run_pipeline.py --help
+```
+
+The single development and driver environment in [env.yaml](env.yaml) provides
+Python 3.12 and seqtk. Tests use the standard library, so no separate test
+dependencies are needed. Update an existing environment after dependency changes
+with `conda env update --name amplicon-pipeline --file env.yaml`.
+
+Nextflow, its Java runtime, Singularity/Apptainer (or Docker), and Dorado 0.8.2
+remain external tools supplied by your installation. Make the launcher and
+container runtime available in the execution shell, and configure the Dorado
+and seqtk executable paths in your run configuration. After activation,
+`command -v seqtk` reports the environment's seqtk path. The environment alone
+does not make the scaffold an executable analysis pipeline.
+
+### Using the environment with a coding agent
+
+Selecting the environment with VS Code's **Python: Select Interpreter** command
+configures Python editor tooling, but does not guarantee activation for agent
+shell commands. Activating it in a separate terminal is also not sufficient.
+After creating it, obtain its prefix and your Conda executable path:
+
+```bash
+conda env list
+conda info --base
+```
+
+Give the agent the environment prefix and the absolute Conda executable path
+(normally `bin/conda` under the Conda base directory). The agent can then run
+each command explicitly, without relying on activation persisting between
+shell calls:
+
+```bash
+/path/to/conda/bin/conda run --no-capture-output -p /path/to/env \
+    python -m unittest discover -s tests -v
+```
+
+Run commands from the pipeline root. Keep machine-specific executable paths and
+environment prefixes out of committed configuration and documentation.
+
+## Usage
+
+```bash
 python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile local
 ```
 
-The second command currently fails deliberately. Python 3.12 is the initial
-development environment; no third-party Python dependencies are required by the
-scaffold.
+| Argument | Description |
+|---|---|
+| `run.fastq.gz` | Raw, undemultiplexed run FASTQ |
+| `manifest.tsv` | Expected samples with their barcodes (schema not yet fixed) |
+| `config_dir` | Run configuration directory (see below) |
+| `output_dir` | Where results are written |
+| `--profile` | `local` or `lsf` (default `local`) |
 
-Before execution is implemented:
+## Configuration
 
-1. Copy [config/example/](config/example/) to a run-specific configuration directory.
-2. Set barcode resource paths in [pipeline.yaml](config/example/pipeline.yaml).
-3. Configure target primers and reference databases in
-   [targets/COI.yaml](config/example/targets/COI.yaml).
-4. Configure the executor, container runtime and site resources in
-   [ampliseq.config](config/example/ampliseq.config).
+Copy [config/example/](config/example/) to a run-specific directory and edit:
 
-`--profile local|lsf` selects the intended execution environment. Scheduler
-submission, dependency checks, configuration loading, dry-run and resume support
-are not implemented yet.
+- [pipeline.yaml](config/example/pipeline.yaml): targets to run, Dorado/seqtk
+  executables and barcode resources.
+- [targets/COI.yaml](config/example/targets/COI.yaml): one file per target, using
+  native ampliseq parameters (primers, reference database, Savont options).
+  The pipeline sets `input` and `outdir` itself.
+- [ampliseq.config](config/example/ampliseq.config): Nextflow configuration for
+  your executor, container runtime and site resources.
 
-## Planned configuration contract
+Relative paths in the configuration resolve against the configuration
+directory, so update the example barcode paths if you copy it elsewhere.
+Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
+[provenance notes](assets/barcodes/README.md).
 
-- Relative resource paths resolve against the user-supplied configuration directory.
-  Update example barcode paths if copying the configuration elsewhere.
-- `pipeline.yaml` lists targets explicitly and contains demultiplexing settings.
-- Target YAML files use native ampliseq parameters. The driver owns `input`
-  and `outdir` and will add them to generated, resolved parameter files.
-- The driver will pass `ampliseq.config` to Nextflow with `-c`, and select the
-  matching `local` or `lsf` profile. Choose a container profile explicitly in
-  that file when configuring the installation.
-- The COI template retains the prototype's permissive empty/filtering/trimming
-  settings. Missing samples must be reported, not silently treated as success.
-- Reporting thresholds remain unset until their scientific definitions and
-  denominators are agreed.
-
-## Planned data flow and outputs
-
-```text
-validate -> demultiplex -> prepare inputs -> ampliseq per target
-         -> summarise ASVs -> summarise samples -> plot
-```
+## Outputs
 
 ```text
 output_dir/
@@ -85,44 +114,27 @@ output_dir/
   ampliseq/<target>/  # published ampliseq outputs
   summary/            # ASV, count and sample/target QC tables
   plots/
-  execution/<target>/ # stable Nextflow launch directory, cache, logs and work/
+  execution/<target>/ # Nextflow launch directory, cache, logs and work/
 ```
 
-The manifest schema and target-routing policy are intentionally not fixed yet.
-First verify whether each demultiplexed FASTQ contains one or several targets
-and test primer-based selection before connecting it to ampliseq.
+Every sample listed in the manifest appears in the sample summary, including
+those with no reads, with a reason for any failure or exclusion.
 
-The ASV adapter must use Savont outputs: ampliseq 3.0.0's long-format counts
-summary is DADA2-only. Verify actual published pooled-Savont outputs using a
-small real run before fixing adapter filenames.
-
-Sample summaries will start from all expected manifest sample/target pairs.
-They must distinguish no reads, preprocessing loss, no ASVs, unresolved
-taxonomy, QC rejection and processing failure. Preserve raw counts and
-classifications alongside acceptance flags and reasons.
-
-Restart handling will validate completion records and relevant inputs/config,
-not merely test for output-file existence. Each ampliseq run will retain both
-its Nextflow cache and work directory for `-resume`. Never automatically
-remove previous results on a failed or changed run.
-
-## Next implementation step
-
-Adapt hybrid demultiplexing without hard-coded site paths or unconditional
-environment-module loading, then run one target end to end on a small fixture.
-Do not add summary rules or orchestration abstractions before verifying that
-vertical slice.
-
-## Scaffold tests
-
-From this directory:
+## Tests
 
 ```bash
 python -m unittest discover -s tests -v
 bash -n scripts/demux_hybrid.sh
 ```
 
-Tests cover the scaffold interface, barcode/mapping consistency, fixture
-expectations and read-subsetting helpers. If the real fixture FASTQ is present,
-they also validate its structure and selected read IDs. They do not execute
-Dorado/ampliseq or assert biological accuracy.
+The tests check the scaffold interface, barcode consistency and the small COI
+fixture. They do not run Dorado or ampliseq.
+
+## Contributing
+
+Development conventions are in [AGENTS.md](AGENTS.md) and the plan in
+[MILESTONES.md](MILESTONES.md).
+
+## License
+
+Released under the [MIT License](LICENSE).

@@ -2,6 +2,9 @@
 
 ## Inputs and expectations
 
+Public redistribution of the fixture read data and read ID list has been
+approved.
+
 - [run.fastq.gz](run.fastq.gz): user-generated raw reads, restricted to COI by
   motif-based ID selection and read recovery. No demultiplexing has yet been
   performed by this scaffold.
@@ -64,16 +67,17 @@ binary, seqtk wrapper and bundled barcode assets. Relative resource paths are
 relative to this fixture's configuration directory.
 
 [config/targets/COI.yaml](config/targets/COI.yaml) retains pooled Savont
-inference and the prototype primers/length settings, but uses the approved
-local MIDORI2 COI SINTAX reference. The reference is external and approximately
-1.6 GB; a tiny read input does not imply tiny taxonomy memory requirements.
+inference and the prototype primers/length settings. Before an analysis run,
+set `sintax_ref` to an accessible local MIDORI2 COI SINTAX reference; the
+reference is external and approximately 1.6 GB, so a tiny read input does not
+imply tiny taxonomy memory requirements.
 
 [config/ampliseq.config](config/ampliseq.config) defines profile `lsf` with
-Singularity and site mounts, queue `long`, queueSize 4, Savont 2 CPUs/8 GB,
-and SINTAX 10 GB. These are unmeasured starting allocations, not guaranteed
-resource requirements. No job arrays, automatic retries or remote weblog
-endpoint are enabled. LSF accounting/group flags use site defaults until
-explicitly configured.
+Singularity, queue `long`, queueSize 4, Savont 2 CPUs/8 GB, and SINTAX 10 GB.
+These are unmeasured starting allocations, not guaranteed resource
+requirements. Configure any site-specific bind mounts, queue settings and LSF
+accounting options in a local copy. No job arrays, automatic retries or remote
+weblog endpoint are enabled.
 
 The pipeline driver and analysis stages are still placeholders. Once demux and
 input preparation exist, launch ampliseq from a stable target execution directory

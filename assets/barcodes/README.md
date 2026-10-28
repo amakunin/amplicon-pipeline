@@ -1,12 +1,8 @@
 # Barcode assets
 
-Imported from the existing prototype's
-`anospp-ops/work/185-ont-debug/dorado_demux/` directory, with owner approval.
-Source base path at import:
-
-```text
-/lustre/scratch126/tol/teams/lawniczak/users/am60/anospp/anospp-ops/work/185-ont-debug/dorado_demux/
-```
+These files were imported from an existing project prototype with approval for
+use in this repository. Public redistribution has been approved for this
+repository.
 
 - `Sanger_custom_barcode_F.{fasta,tmol,tsv}`: 16 forward 8 bp Illumina-scheme
   barcodes, Dorado arrangement and sequence/index/plate mapping.

@@ -7,7 +7,7 @@ sample_inference: "pooled"
 savont_options: "--min-read-length 600 --max-read-length 900"
 decontam: "none"
 
-sintax_ref: /lustre/scratch126/tol/teams/lawniczak/users/am60/anospp/culicidae_ref/MIDORI2_UNIQ_NUC_GB272_CO1_SINTAX.fasta
+# Set sintax_ref to the accessible local MIDORI2 COI reference FASTA before running.
 sintax_cutoff: 0.8
 skip_dada_taxonomy: true
 skip_barrnap: true

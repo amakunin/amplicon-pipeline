@@ -129,7 +129,7 @@ existing COI fixture is not required.
 
 ## M4 - Demultiplexing
 
-[ ]
+[~]
 
 **Goal:** both demultiplexing scripts are robust, standalone, config-driven,
 and ready to be called from the pipeline on the small mixed-target fixture.
@@ -154,7 +154,7 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 - Validate both methods on the small fixture before M5/M6.
 - No target-routing or ampliseq work here.
 
-### M4a - Refactor hybrid demultiplexing script [ ]
+### M4a - Refactor hybrid demultiplexing script [x]
 - Convert `scripts/demux_hybrid.sh` into a standalone script with explicit
   arguments: input FASTQ, output directory, barcode directory, `--dorado`,
   `--threads`.
@@ -168,7 +168,7 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 - **Review gate:** developer approves the hybrid script interface and output
   layout.
 
-### M4b - Refactor Illumina demultiplexing script [ ]
+### M4b - Refactor Illumina demultiplexing script [x]
 - Apply the same conventions to `scripts/demux_illumina.sh`.
 - Keep the logic explicit: F pass, reverse-complement unclassified reads,
   second F pass, per-F R demux, flatten, counts.
@@ -177,13 +177,19 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 - **Review gate:** developer approves the Illumina interface and its
   output naming and flattening rules.
 
-### M4c - Shared demux contract [ ]
+### M4c - Shared demux contract [~]
 - Define one output contract for both scripts: directory layout, per-sample
   FASTQ naming, counts file format, unclassified handling, cleanup and exit
   codes.
 - Scripts stay independently runnable; shared conventions only, no shared
   library.
 - Check both scripts against the small fixture where it applies.
+- Contract is in `scripts/README.md`. Hybrid files carry an `ont_` prefix;
+  stats are sorted by name.
+- Manual fixture runs (real Dorado): hybrid recovers all 931 reads in the
+  three expected pairs; Illumina recovers 718 of 931 in the three expected
+  pairs (`barcode02_barcode89`, `barcode08_barcode09`, `barcode08_barcode64`),
+  mostly lost at F matching.
 - **Review gate:** developer approves the common contract and what stays
   method-specific.
 

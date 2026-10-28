@@ -5,11 +5,11 @@ set -euo pipefail
 shopt -s nullglob
 
 usage() {
-    echo "Usage: $0 --input FASTQ --output-dir DIR --barcode-dir DIR [--dorado PATH] [--threads N]" >&2
+    echo "Usage: $0 --input FASTQ --output-dir DIR --barcode-dir DIR [--dorado PATH] [--threads N] [--keep-intermediates]" >&2
     exit 1
 }
 
-input="" outdir="" bcdir="" dorado="dorado" threads=16
+input="" outdir="" bcdir="" dorado="dorado" threads=16 keep=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --input) input="$2"; shift 2 ;;
@@ -17,6 +17,7 @@ while [ $# -gt 0 ]; do
         --barcode-dir) bcdir="$2"; shift 2 ;;
         --dorado) dorado="$2"; shift 2 ;;
         --threads) threads="$2"; shift 2 ;;
+        --keep-intermediates) keep=1; shift ;;
         *) usage ;;
     esac
 done
@@ -96,5 +97,8 @@ for file in "$outdir"/*.fastq; do
         >> "$outdir/demux_stats.txt"
     gzip "$file"
 done
+LC_ALL=C sort -o "$outdir/demux_stats.txt" "$outdir/demux_stats.txt"
 
-rm -r "$work"
+if [ "$keep" -eq 0 ]; then
+    rm -r "$work"
+fi

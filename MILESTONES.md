@@ -75,7 +75,7 @@ manifest; every configured target runs against the demultiplexed samples.
 
 ## M3 - Mixed-target integration fixture
 
-[~]
+[x]
 
 **Goal:** one small, realistic mixed-amplicon dataset supports integration
 testing from demultiplexing through plots.
@@ -105,7 +105,7 @@ existing COI fixture is not required.
 - **Review gate:** developer approves the selection behavior before preparing
   the new dataset.
 
-### M3b - Establish the small fixture [~]
+### M3b - Establish the small fixture [x]
 - Developer supplies recovered raw reads and an updated manifest with real
   barcodes; the extraction ID list need not be retained.
 - Rename the primary fixture directory to `tests/fixtures/small/`, retaining
@@ -115,7 +115,7 @@ existing COI fixture is not required.
   yet verified by analysis.
 - **Review gate:** developer approves the fixture contents and expectations.
 
-### M3c - Align tests and documentation [ ]
+### M3c - Align tests and documentation [x]
 - Update fixture references and assertions to the approved samples, barcode
   indices and configured targets.
 - Verify FASTQ integrity, unique read IDs, the approved record count,
@@ -127,28 +127,74 @@ existing COI fixture is not required.
   integration baseline. Actual demultiplexing and ampliseq outcomes are
   validated in M4-M6.
 
-## M4 - Hybrid and Illumina demultiplexing
+## M4 - Demultiplexing
 
 [ ]
 
-**Goal:** both demultiplexing methods produce consistent downstream inputs
-and account for all expected samples.
+**Goal:** both demultiplexing scripts are robust, standalone, config-driven,
+and ready to be called from the pipeline on the small mixed-target fixture.
+
+**Tool provisioning**
+- Conda environment is the single source of all tools except Dorado,
+  including `seqtk`. Scripts call `seqtk` from `PATH`; there is no `seqtk`
+  config key or CLI option.
+- Dorado is not in conda, so it is the only tool located by path: a
+  `--dorado` script argument, set from a `dorado` key in the config. If
+  omitted, scripts use `dorado` from `PATH`.
+- Scripts check at start that `dorado` and `seqtk` are executable, with a
+  clear message naming the missing tool. No `module load`.
+- The conda environment file lists `seqtk` and is updated where it is
+  currently defined.
 
 **Tasks**
-- Adapt the developer-provided hybrid and Illumina scripts, with executables
-  and resources from configuration and no unconditional site setup.
-- Establish fixture configuration for both demultiplexing methods.
-- Produce per-sample FASTQs, barcode mappings and read counts in `demux/`.
-- Validate both methods against the mixed-target fixture and record commands,
-  versions and counts.
-- Check dependencies when used, fail clearly and preserve previous results;
-  establish safe rerun handling for demultiplexing.
+- Remove site-specific assumptions from both scripts and make the standalone
+  CLI predictable.
+- Standalone correctness first, then integration with the config, driver and
+  tests.
+- Validate both methods on the small fixture before M5/M6.
+- No target-routing or ampliseq work here.
 
-**Done when:** both methods meet the approved fixture expectations, including
-samples with no reads, and fail clearly on bad input.
+### M4a - Refactor hybrid demultiplexing script [ ]
+- Convert `scripts/demux_hybrid.sh` into a standalone script with explicit
+  arguments: input FASTQ, output directory, barcode directory, `--dorado`,
+  `--threads`.
+- Remove hard-coded paths, `module load` and implicit state; `seqtk` from
+  `PATH` (see Tool provisioning).
+- Keep stages explicit: ONT demux, Illumina R trimming, flatten/merge,
+  counts, gzip, cleanup.
+- Clear failures for missing inputs or tools, existing output directory, bad
+  barcode paths and failed Dorado runs. `set -euo pipefail`, quoted variables,
+  must pass `bash -n`.
+- **Review gate:** developer approves the hybrid script interface and output
+  layout.
 
-**Review gate:** developer approves counts and downstream inputs for both
-methods.
+### M4b - Refactor Illumina demultiplexing script [ ]
+- Apply the same conventions to `scripts/demux_illumina.sh`.
+- Keep the logic explicit: F pass, reverse-complement unclassified reads,
+  second F pass, per-F R demux, flatten, counts.
+- Replace fragile filename parsing in the flatten step; validate barcode
+  files and empty results.
+- **Review gate:** developer approves the Illumina interface and its
+  output naming and flattening rules.
+
+### M4c - Shared demux contract [ ]
+- Define one output contract for both scripts: directory layout, per-sample
+  FASTQ naming, counts file format, unclassified handling, cleanup and exit
+  codes.
+- Scripts stay independently runnable; shared conventions only, no shared
+  library.
+- Check both scripts against the small fixture where it applies.
+- **Review gate:** developer approves the common contract and what stays
+  method-specific.
+
+### M4d - Pipeline integration and tests [ ]
+- Driver calls the script chosen by `demux.method`, passing the config's
+  `dorado` path, barcode paths and threads; it does not look for `seqtk`.
+- Tests (no Dorado needed in CI) cover command construction and the
+  validation failures. Real Dorado runs on the small fixture are manual and
+  recorded in the milestone notes.
+- Update the README and AGENTS.md for the conda and Dorado provisioning rule.
+- **Review gate:** developer approves the integration contract before M5.
 
 ## M5 - Single-target ampliseq execution
 

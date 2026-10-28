@@ -2,6 +2,7 @@
 
 import csv
 import gzip
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests/fixtures/coi_small"
+FIXTURE = ROOT / "tests/fixtures/small"
 BARCODES = ROOT / "assets/barcodes"
 HELPERS = ROOT / "tests/helpers"
 
@@ -45,11 +46,11 @@ class FixtureContractTests(unittest.TestCase):
             self.assertEqual(rear[sample["rear_barcode"]], row["rear_barcode_id"])
         self.assertEqual(
             {row["sample_id"] for row in expected if row["expected_reads"] == "positive"},
-            {"ANLCx_001_A1", "ANLCx_001_C1", "ANLCx_001_E1"},
+            {"ANLCx_002_A12", "BFHK_023_H8", "BFHK_023_A2"},
         )
         self.assertEqual(
             {row["sample_id"] for row in expected if row["expected_reads"] == "zero"},
-            {"ANLCx_001_B1", "ANLCx_001_D1"},
+            {"ANLCx_001_A1", "ANLCx_001_B1"},
         )
 
     def test_custom_barcode_assets_are_consistent(self) -> None:
@@ -68,14 +69,19 @@ class FixtureContractTests(unittest.TestCase):
                     name = f">SANGER-BC{end}{row['index']}"
                     self.assertEqual(fasta[name], row["tag_sequence"])
 
-    def test_optional_real_fastq_integrity_and_selected_ids(self) -> None:
+    def test_fixture_checksums(self) -> None:
+        for line in (FIXTURE / "checksums.sha256").read_text().splitlines():
+            expected, filename = line.split()
+            with self.subTest(filename=filename):
+                with (FIXTURE / filename).open("rb") as handle:
+                    self.assertEqual(
+                        hashlib.file_digest(handle, "sha256").hexdigest(), expected
+                    )
+
+    def test_optional_real_fastq_integrity_and_record_count(self) -> None:
         fastq = FIXTURE / "run.fastq.gz"
-        ids_path = FIXTURE / "read_ids.txt"
         if not fastq.exists():
             self.skipTest("Real FASTQ is not distributed with this checkout")
-        self.assertTrue(ids_path.is_file(), "Record the fixture's selected read IDs")
-        selected = set(ids_path.read_text().split())
-        self.assertTrue(selected)
         observed: set[str] = set()
         with gzip.open(fastq, "rt") as handle:
             while header := handle.readline():
@@ -87,10 +93,9 @@ class FixtureContractTests(unittest.TestCase):
                 self.assertGreater(len(sequence), 0)
                 self.assertEqual(len(sequence), len(quality))
                 read_id = header.split()[0][1:]
-                self.assertIn(read_id, selected)
                 self.assertNotIn(read_id, observed)
                 observed.add(read_id)
-        self.assertEqual(observed, selected)
+        self.assertEqual(len(observed), 931)
 
 
 class ReadHelperTests(unittest.TestCase):

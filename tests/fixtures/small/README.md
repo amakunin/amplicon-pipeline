@@ -80,4 +80,7 @@ From this directory, verify input integrity with:
 sha256sum -c checksums.sha256
 ```
 
-Tests and repository references are migrated to this fixture in M3c.
+From the pipeline root, run `python -m unittest discover -s tests -v`.
+Tests check input checksums, FASTQ structure and record count, barcode
+expectations, configuration/manifest loading and the dry-run plan without
+creating outputs. They do not run demultiplexing or ampliseq.

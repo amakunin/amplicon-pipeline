@@ -46,7 +46,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `config/example/` | Template configuration for users to copy |
 | `assets/barcodes/` | Bundled barcode arrangements, sequences and mappings |
 | `tests/` | Unit tests, helpers and fixtures |
-| `tests/fixtures/coi_small/` | Small COI fixture; see its README |
+| `tests/fixtures/small/` | Small mixed-target fixture; see its README |
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
 Stage scripts other than `run_pipeline.py` are currently placeholders.
@@ -108,7 +108,7 @@ bash -n scripts/demux_hybrid.sh
 - Tests must not require Dorado, Nextflow, containers or network access.
   Integration runs against the fixture are manual and recorded in the
   milestone notes.
-- Do not regenerate or edit `tests/fixtures/coi_small/` without approval. Verify
+- Do not regenerate or edit `tests/fixtures/small/` without approval. Verify
   it with `sha256sum -c checksums.sha256` from that directory.
 - Check actual output against expected behaviour. Do not weaken a test to make
   it pass.

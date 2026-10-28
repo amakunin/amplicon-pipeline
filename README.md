@@ -127,8 +127,9 @@ python -m unittest discover -s tests -v
 bash -n scripts/demux_hybrid.sh
 ```
 
-The tests check the scaffold interface, barcode consistency and the small COI
-fixture. They do not run Dorado or ampliseq.
+The tests check the scaffold interface, barcode consistency and the
+[small mixed-target fixture](tests/fixtures/small/README.md).
+They do not run Dorado or ampliseq.
 
 ## Contributing
 

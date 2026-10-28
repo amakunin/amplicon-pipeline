@@ -8,7 +8,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests/fixtures/coi_small"
+FIXTURE = ROOT / "tests/fixtures/small"
 sys.path.insert(0, str(ROOT))
 
 from run_pipeline import load_config, read_manifest
@@ -60,9 +60,9 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(len(samples), 5)
         self.assertEqual(
             samples[0]["barcode_indices"],
-            {"ont_barcode": "09", "rear_barcode": "01"},
+            {"ont_barcode": "10", "rear_barcode": "89"},
         )
-        self.assertEqual(samples[0]["well_id"], "A1")
+        self.assertEqual(samples[0]["well_id"], "A12")
 
     def test_read_manifest_reports_unknown_barcode_with_sample(self) -> None:
         config, _ = load_config(FIXTURE / "config")
@@ -153,19 +153,18 @@ class ScaffoldTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Method: hybrid", result.stdout)
-            self.assertIn("Targets: COI", result.stdout)
-            for sample_id, rear_index in (
-                ("ANLCx_001_A1", "01"),
-                ("ANLCx_001_B1", "02"),
-                ("ANLCx_001_C1", "03"),
-                ("ANLCx_001_D1", "04"),
-                ("ANLCx_001_E1", "05"),
-            ):
-                self.assertIn(
-                    f"{sample_id}: ont_barcode=09, rear_barcode={rear_index}",
-                    result.stdout,
-                )
+            self.assertEqual(
+                result.stdout,
+                "Method: hybrid\n"
+                "Targets: COI\n"
+                "Samples:\n"
+                "  ANLCx_002_A12: ont_barcode=10, rear_barcode=89\n"
+                "  BFHK_023_H8: ont_barcode=16, rear_barcode=64\n"
+                "  BFHK_023_A2: ont_barcode=16, rear_barcode=09\n"
+                "  ANLCx_001_A1: ont_barcode=09, rear_barcode=01\n"
+                "  ANLCx_001_B1: ont_barcode=09, rear_barcode=02\n",
+            )
+            self.assertEqual(result.stderr, "")
             self.assertEqual(list(directory.iterdir()), [])
 
     def test_stage_placeholders_fail_explicitly(self) -> None:

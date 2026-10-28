@@ -8,14 +8,17 @@ sample_inference: "pooled"
 savont_options: "--min-read-length 600 --max-read-length 900"
 decontam: "none"
 
-# Built-in database; configure sintax_ref instead for a custom local FASTA.
+# Built-in database; alternatively use sintax_ref_tax_custom and sintax_assign_taxlevels.
 sintax_ref_taxonomy: "coidb"
+
+# skipping steps for this configuration
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
 skip_qiime: true
-
+skip_fastqc: True
+skip_parquet_summary: True
 # Preserve prototype behaviour; downstream summaries must report exclusions.
 ignore_empty_input_files: true
 ignore_failed_filtering: true

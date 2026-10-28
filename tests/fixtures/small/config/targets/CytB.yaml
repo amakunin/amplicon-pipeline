@@ -1,0 +1,18 @@
+primer_fwd: "CCAACATCTCAGCATGATGAAA"
+primer_rev: "CCTCAGAATGATATTTGTCCTCA"
+ignore_empty_input_files: True
+ignore_failed_filtering: True
+ignore_failed_trimming: True
+sequencing_type: "nanopore"
+asv_calling: "savont"
+sample_inference: "pooled"
+savont_options: "--min-read-length 250 --max-read-length 500"
+skip_dada_taxonomy: True
+skip_barrnap: True
+sintax_ref_tax_custom: "../../../../../culicidae_ref/MIDORI2_UNIQ_NUC_GB272_Cytb_SINTAX.fasta"
+sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species"
+skip_phyloseq: True
+skip_tse: True
+skip_qiime: true
+skip_fastqc: True
+skip_parquet_summary: True

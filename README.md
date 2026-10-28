@@ -109,16 +109,36 @@ Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 
 ```text
 output_dir/
-  demux/              # FASTQs, barcode mapping and read counts
-  inputs/             # target samplesheets and resolved parameters
-  ampliseq/<target>/  # published ampliseq outputs
-  summary/            # ASV, count and sample/target QC tables
-  plots/
-  execution/<target>/ # Nextflow launch directory, cache, logs and work/
+  demux/                    # barcode-named FASTQs and demux_stats.txt
+  ampliseq/<target>/         # independent Nextflow launch directory
+    samplesheet.tsv
+    excluded_samples.tsv
+    params.yaml
+    resources.config
+    .nextflow/              # retained cache
+    .nextflow.log
+    work/                   # retained task files
+    results/                # published ampliseq outputs
+  summary/                  # planned ASV, count and sample/target QC tables
+  plots/                    # planned
 ```
 
-Every sample listed in the manifest appears in the sample summary, including
-those with no reads, with a reason for any failure or exclusion.
+The pooled CytB fixture run published these files under `results/`:
+
+```text
+savont/pooled_feature-table.tsv
+savont/pooled_final_asvs.fasta
+savont/pooled_stats.tsv
+sintax/ASV_tax_sintax.user.tsv
+sintax/ASV_tax_sintax.user.raw.tsv
+summary_tables/ampliseq.taxonomy.SINTAX.user.tsv.gz
+overall_summary.tsv
+```
+
+Counts, sequences and taxonomy share ASV IDs. These are observed pooled-mode,
+custom-reference filenames, not yet a contract for other inference/database modes.
+Future sample summaries must include every manifest sample, including those
+without reads; input preparation currently records these in `excluded_samples.tsv`.
 
 ## Tests
 

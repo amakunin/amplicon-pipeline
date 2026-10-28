@@ -7,13 +7,15 @@ sample_inference: "pooled"
 savont_options: "--min-read-length 600 --max-read-length 900"
 decontam: "none"
 
-# Set sintax_ref to the accessible local MIDORI2 COI reference FASTA before running.
+sintax_ref_taxonomy: "coidb"
 sintax_cutoff: 0.8
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
 skip_qiime: true
+skip_fastqc: True
+skip_parquet_summary: True
 ignore_empty_input_files: true
 ignore_failed_filtering: true
 ignore_failed_trimming: true

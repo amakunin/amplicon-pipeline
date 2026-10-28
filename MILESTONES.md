@@ -255,10 +255,31 @@ verified, and failures stop the run with a clear message.
 - **Review gate:** developer approves the command, directory layout and
   config keys.
 
-### M5c - Fixture run and outputs [ ]
+### M5c - Fixture run and outputs [x]
 - Run one target on the small fixture with the local profile. Record the
   actual Savont output filenames and the output layout in the README.
 - **Review gate:** developer approves the recorded outputs.
+- Manual local/Singularity run (2026-10-28), CytB: 26 successful tasks,
+  no failed or ignored tasks. Output layout and filenames recorded in README.
+
+  | Sample | Chopper input | Chopper output | Primer-trimmed | Savont counts |
+  |---|---:|---:|---:|---:|
+  | ANLCx_002_A12 | 202 | 184 | 38 | 29 |
+  | BFHK_023_A2 | 398 | 356 | 187 | 177 |
+  | BFHK_023_H8 | 309 | 269 | 137 | 131 |
+
+- Two ASVs: `0aece8f365778d45` (177 + 131 reads; SINTAX Homo sapiens,
+  confidence 0.90) and `9e07fe1354e353c7` (29 reads; Bos indicus, 0.97).
+  Both have `ampliseq_accept=TRUE`; assignments are not independently verified.
+  IDs agree across counts, sequences and taxonomy. Two absent samples remain
+  in `excluded_samples.tsv`.
+- Future work: Savont automatically enabled low-polymorphism mode after an
+  88.51% no-SNPmer warning. Earlier COI run completed but produced zero ASVs,
+  an empty FASTA, header-only counts and no published taxonomy; its export
+  log contained an empty-FASTA error despite workflow success. Summaries must
+  distinguish these outcomes rather than equating execution success with ASVs.
+- The old-pipeline counts remain sanity references, not exact acceptance
+  targets. No thresholds or analysis parameters were changed during inspection.
 
 ### M5d - Restart and completion records [ ]
 - Completion record per target that stores the input and config checksums.

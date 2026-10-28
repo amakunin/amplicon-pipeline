@@ -34,9 +34,9 @@ class ScaffoldTests(unittest.TestCase):
         self.assertEqual(config["demux"]["barcode_dir"], ROOT / "assets/barcodes")
         self.assertNotIn("seqtk_exec", config["demux"])
         self.assertEqual(
-            config["targets"]["COI"], FIXTURE / "config/targets/COI.yaml"
+            config["targets"]["CytB"], FIXTURE / "config/targets/CytB.yaml"
         )
-        self.assertEqual(targets["COI"]["asv_calling"], "savont")
+        self.assertEqual(targets["CytB"]["asv_calling"], "savont")
 
     def test_load_config_resolves_relative_executable_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -51,15 +51,27 @@ class ScaffoldTests(unittest.TestCase):
                 "  dorado_exec: bin/dorado\n"
                 "  reverse_barcode_mapping: null\n"
             )
-            (targets_dir / "COI.yaml").write_text("asv_calling: savont\n")
+            (targets_dir / "COI.yaml").write_text(
+                "asv_calling: savont\n"
+                "sintax_ref: refs/legacy.fasta\n"
+                "sintax_ref_tax_custom: ../culicidae_ref/CytB.fasta\n"
+            )
 
-            config, _ = load_config(config_dir)
+            config, targets = load_config(config_dir)
 
             self.assertEqual(
                 config["demux"]["dorado_exec"],
                 (config_dir / "bin/dorado").resolve(),
             )
             self.assertIsNone(config["demux"]["reverse_barcode_mapping"])
+            self.assertEqual(
+                targets["COI"]["sintax_ref"],
+                str((config_dir / "refs/legacy.fasta").resolve()),
+            )
+            self.assertEqual(
+                targets["COI"]["sintax_ref_tax_custom"],
+                str((config_dir.parent / "culicidae_ref/CytB.fasta").resolve()),
+            )
 
     def test_read_fixture_manifest(self) -> None:
         config, _ = load_config(FIXTURE / "config")
@@ -184,7 +196,7 @@ class ScaffoldTests(unittest.TestCase):
                 str(FIXTURE / "config"),
                 str(Path(temporary) / "out"),
             ]
-            target_dir = Path(temporary) / "out/ampliseq/COI"
+            target_dir = Path(temporary) / "out/ampliseq/CytB"
 
             def fake_run(command, **kwargs):
                 if "prepare_inputs.py" in command[1]:
@@ -228,11 +240,11 @@ class ScaffoldTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             plan, commands = result.stdout.split("Demux command: ", 1)
             self.assertIn("demux_hybrid.sh", commands)
-            self.assertIn("Ampliseq command (COI): nextflow run", commands)
+            self.assertIn("Ampliseq command (CytB): nextflow run", commands)
             self.assertEqual(
                 plan,
                 "Method: hybrid\n"
-                "Targets: COI\n"
+                "Targets: CytB\n"
                 "Samples:\n"
                 "  ANLCx_002_A12: ont_barcode=10, rear_barcode=89\n"
                 "  BFHK_023_H8: ont_barcode=16, rear_barcode=64\n"

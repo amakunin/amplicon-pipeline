@@ -37,10 +37,9 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
         config["targets"][name] = path
         with path.open() as handle:
             parameters = yaml.safe_load(handle)
-        if "sintax_ref" in parameters:
-            parameters["sintax_ref"] = str(
-                (config_dir / parameters["sintax_ref"]).resolve()
-            )
+        for key in ("sintax_ref", "sintax_ref_tax_custom"):
+            if key in parameters:
+                parameters[key] = str((config_dir / parameters[key]).resolve())
         targets[name] = parameters
     return config, targets
 

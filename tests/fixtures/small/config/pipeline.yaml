@@ -2,7 +2,7 @@
 threads: 4  # Used by demultiplexing and as the ampliseq CPU limit.
 
 targets:
-  COI: targets/COI.yaml
+  CytB: targets/CytB.yaml
 
 demux:
   method: hybrid

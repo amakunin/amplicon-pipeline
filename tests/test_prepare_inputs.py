@@ -24,7 +24,7 @@ def run_prepare(demux_dir: Path, output_dir: Path) -> subprocess.CompletedProces
             "--manifest", str(FIXTURE / "manifest.tsv"),
             "--config-dir", str(FIXTURE / "config"),
             "--demux-dir", str(demux_dir),
-            "--target", "COI",
+            "--target", "CytB",
             "--output-dir", str(output_dir),
         ],
         capture_output=True,
@@ -34,6 +34,28 @@ def run_prepare(demux_dir: Path, output_dir: Path) -> subprocess.CompletedProces
 
 
 class PrepareInputsTests(unittest.TestCase):
+    def test_bundled_coi_reference_in_generated_params(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPT),
+                    "--manifest", str(FIXTURE / "manifest.tsv"),
+                    "--config-dir", str(ROOT / "config/example"),
+                    "--demux-dir", str(directory),
+                    "--target", "COI",
+                    "--output-dir", str(directory / "ampliseq"),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            parameters = yaml.safe_load(
+                (directory / "ampliseq/COI/params.yaml").read_text()
+            )
+            self.assertEqual(parameters["sintax_ref_taxonomy"], "coidb")
+            self.assertNotIn("sintax_ref_tax_custom", parameters)
+            self.assertNotIn("sintax_assign_taxlevels", parameters)
+
     def test_samplesheet_excluded_samples_and_params(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             demux = Path(temporary) / "demux"
@@ -46,7 +68,7 @@ class PrepareInputsTests(unittest.TestCase):
             result = run_prepare(demux, Path(temporary) / "ampliseq")
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            target_dir = Path(temporary) / "ampliseq/COI"
+            target_dir = Path(temporary) / "ampliseq/CytB"
             self.assertEqual(
                 (target_dir / "samplesheet.tsv").read_text(),
                 "sample\tfastq_1\n"
@@ -64,6 +86,13 @@ class PrepareInputsTests(unittest.TestCase):
             self.assertEqual(parameters["input"], str(target_dir / "samplesheet.tsv"))
             self.assertEqual(parameters["outdir"], str(target_dir / "results"))
             self.assertEqual(parameters["asv_calling"], "savont")
+            self.assertEqual(
+                parameters["sintax_ref_tax_custom"],
+                str(
+                    ROOT.parent / "culicidae_ref"
+                    / "MIDORI2_UNIQ_NUC_GB272_Cytb_SINTAX.fasta"
+                ),
+            )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+# Template only: configuration loading and validation are not implemented.
+# Relative resource paths will resolve against the supplied config_dir.
+targets:
+  COI: targets/COI.yaml
+
+demux:
+  dorado_exec: null  # Required: absolute executable path.
+  seqtk_exec: null  # Required: absolute executable path.
+  ont_kit: SQK-NBD114-24
+  reverse_barcode_fasta: ../../assets/barcodes/Sanger_custom_barcode_R.fasta
+  reverse_barcode_arrangement: ../../assets/barcodes/Sanger_custom_barcode_R.tmol
+  ont_barcode_mapping: ../../assets/barcodes/ONT_nb24_barcode.tsv
+  reverse_barcode_mapping: ../../assets/barcodes/Sanger_custom_barcode_R.tsv
+  threads: 4
+
+# Reporting thresholds and manifest schema will follow the first vertical slice.

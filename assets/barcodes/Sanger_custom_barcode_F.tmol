@@ -1,0 +1,23 @@
+[arrangement]
+name = "Sanger_custom_barcode"
+kit = "SciOps"
+
+mask1_front = "AATGATACGGCGACCACCGAGATCTACAC"
+mask1_rear = "ACACTCTTTCCCTACACGACGCTCTTCCGATCT"
+
+# Barcode sequences
+barcode1_pattern = "SANGER-BCF%02i"
+first_index = 1
+last_index = 16
+
+## Scoring options
+[scoring]
+max_barcode_penalty = 0
+barcode_end_proximity = 100
+min_barcode_penalty_dist = 3
+min_separation_only_dist = 10
+flank_left_pad = 0
+flank_right_pad = 0
+front_barcode_window = 175
+rear_barcode_window = 175
+midstrand_flank_score = 0.95

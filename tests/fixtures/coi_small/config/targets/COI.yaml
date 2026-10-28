@@ -1,0 +1,18 @@
+# Native nf-core/ampliseq 3.0.0 parameters; driver supplies input and outdir.
+primer_fwd: "RKTCAACMAATCATAAAGATATTGG"
+primer_rev: "TAAACTTCWGGRTGWCCAAAAAATCA"
+sequencing_type: "nanopore"
+asv_calling: "savont"
+sample_inference: "pooled"
+savont_options: "--min-read-length 600 --max-read-length 900"
+decontam: "none"
+
+sintax_ref: /lustre/scratch126/tol/teams/lawniczak/users/am60/anospp/culicidae_ref/MIDORI2_UNIQ_NUC_GB272_CO1_SINTAX.fasta
+sintax_cutoff: 0.8
+skip_dada_taxonomy: true
+skip_barrnap: true
+skip_phyloseq: true
+skip_tse: true
+ignore_empty_input_files: true
+ignore_failed_filtering: true
+ignore_failed_trimming: true

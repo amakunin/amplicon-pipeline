@@ -188,7 +188,6 @@ class ScaffoldTests(unittest.TestCase):
         commands = [
             [sys.executable, str(ROOT / "scripts" / name)]
             for name in (
-                "prepare_inputs.py",
                 "summarise_asvs.py",
                 "summarise_samples.py",
                 "plot_summary.py",

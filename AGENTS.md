@@ -44,7 +44,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `run_pipeline.py` | Fixed-order orchestration entrypoint, config loading, manifest handling and the dry-run |
 | `scripts/demux_illumina.sh` | Dorado Illumina F & R demultiplexing |
 | `scripts/demux_hybrid.sh` | Dorado hybrid ONT and R Illumina demultiplexing |
-| `scripts/prepare_inputs.py` | Barcode/sample mapping and per-target ampliseq samplesheets |
+| `scripts/prepare_inputs.py` | Per-target ampliseq samplesheet, excluded-sample list and parameter file |
 | `scripts/summarise_asvs.py` | Savont counts, sequences and taxonomy into stable tables |
 | `scripts/summarise_samples.py` | Manifest-driven sample annotations and QC outcomes |
 | `scripts/plot_summary.py` | Plots from summary tables |
@@ -54,8 +54,8 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `tests/fixtures/small/` | Small mixed-target fixture; see its README |
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
-The demux scripts are implemented (contract in `scripts/README.md`); the other
-stage scripts are currently placeholders.
+The demux scripts and `prepare_inputs.py` are implemented (demux contract in
+`scripts/README.md`); the other stage scripts are currently placeholders.
 
 ## Design decisions
 

@@ -229,6 +229,37 @@ verified, and failures stop the run with a clear message.
 
 **Review gate:** developer approves single-target results and rerun behavior.
 
+### M5a - Prepare ampliseq inputs [x]
+- Implement `scripts/prepare_inputs.py`: per-target samplesheet from the
+  manifest and the demux output, using the barcode mapping from M2.
+- Samples with no demux file or an empty FASTQ are left out of the samplesheet
+  and written to a separate list, so they are not lost (M7 reports them).
+- Write the resolved parameter file with absolute `input` and `outdir`.
+- **Review gate:** developer approves the samplesheet, the empty-sample list
+  and the parameter file layout.
+
+### M5b - Launch ampliseq for one target [ ]
+- Driver builds the `nextflow run nf-core/ampliseq -r 3.0.0` command with
+  `-profile`, `-c ampliseq.config`, a generated resource config and
+  `-params-file`, run from `<output_dir>/ampliseq/<target>/`.
+- Single `threads` key shared by demux and ampliseq; resource config sets
+  CPU limits; memory limits stay in the user's `ampliseq.config`.
+- Tests check command construction and generated files; Nextflow is run
+  manually.
+- **Review gate:** developer approves the command, directory layout and
+  config keys.
+
+### M5c - Fixture run and outputs [ ]
+- Run one target on the small fixture with the local profile. Record the
+  actual Savont output filenames and the output layout in the README.
+- **Review gate:** developer approves the recorded outputs.
+
+### M5d - Restart and completion records [ ]
+- Completion record per target that stores the input and config checksums.
+- Rerun after an interrupt and after a config change; nothing is deleted
+  automatically.
+- **Review gate:** developer approves rerun behaviour.
+
 ## M6 - Multi-target ampliseq execution
 
 [ ]

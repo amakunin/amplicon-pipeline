@@ -49,7 +49,7 @@ class PrepareInputsTests(unittest.TestCase):
             target_dir = Path(temporary) / "ampliseq/COI"
             self.assertEqual(
                 (target_dir / "samplesheet.tsv").read_text(),
-                "sampleID\tforwardReads\n"
+                "sample\tfastq_1\n"
                 f"ANLCx_002_A12\t{demux.resolve()}/ont_barcode10_barcode89.fastq.gz\n",
             )
             self.assertEqual(

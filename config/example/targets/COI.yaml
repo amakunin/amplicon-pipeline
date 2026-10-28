@@ -14,6 +14,7 @@ skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
+skip_qiime: true
 
 # Preserve prototype behaviour; downstream summaries must report exclusions.
 ignore_empty_input_files: true

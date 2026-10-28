@@ -19,7 +19,7 @@ and a sample manifest, it will:
 Not all of these are used yet; they are what the finished pipeline will need.
 
 - Python 3.12 (the scaffold uses the standard library only)
-- [Nextflow](https://www.nextflow.io/) and a container runtime (Docker,
+- [Nextflow](https://www.nextflow.io/) 26 or higher (required by ampliseq 3.0.0; checked before the run starts) and a container runtime (Docker,
   Singularity or Apptainer)
 - [Dorado](https://github.com/nanoporetech/dorado) 0.8.2 and
   [seqtk](https://github.com/lh3/seqtk)
@@ -92,7 +92,7 @@ python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile
 
 Copy [config/example/](config/example/) to a run-specific directory and edit:
 
-- [pipeline.yaml](config/example/pipeline.yaml): targets to run, demultiplexing
+- [pipeline.yaml](config/example/pipeline.yaml): threads (demultiplexing and ampliseq CPU limit), targets to run, demultiplexing
   method, optional Dorado path and barcode resources.
 - [targets/COI.yaml](config/example/targets/COI.yaml): one file per target, using
   native ampliseq parameters (primers, reference database, Savont options).

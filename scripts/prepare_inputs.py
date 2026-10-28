@@ -49,7 +49,7 @@ def main() -> None:
 
     with (target_dir / "samplesheet.tsv").open("w", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")
-        writer.writerow(["sampleID", "forwardReads"])
+        writer.writerow(["sample", "fastq_1"])
         writer.writerows(included)
 
     with (target_dir / "excluded_samples.tsv").open("w", newline="") as handle:

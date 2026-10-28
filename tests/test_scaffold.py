@@ -13,7 +13,14 @@ FIXTURE = ROOT / "tests/fixtures/small"
 sys.path.insert(0, str(ROOT))
 
 import run_pipeline
-from run_pipeline import demux_command, load_config, read_manifest
+from run_pipeline import (
+    ampliseq_command,
+    check_nextflow,
+    demux_command,
+    load_config,
+    read_manifest,
+    write_resource_config,
+)
 
 
 class ScaffoldTests(unittest.TestCase):
@@ -97,7 +104,7 @@ class ScaffoldTests(unittest.TestCase):
             "--dry-run",
         ):
             self.assertIn(argument, result.stdout)
-        self.assertIn("Only demultiplexing runs", result.stdout)
+        self.assertIn("later", result.stdout)
 
     def test_missing_arguments(self) -> None:
         result = subprocess.run(
@@ -130,22 +137,73 @@ class ScaffoldTests(unittest.TestCase):
         self.assertTrue(command[1].endswith("scripts/demux_illumina.sh"))
         self.assertNotIn("--dorado", command)
 
-    def test_execution_runs_demux_then_stops(self) -> None:
-        argv = [
-            "run_pipeline.py",
-            "run.fastq.gz",
-            str(FIXTURE / "manifest.tsv"),
-            str(FIXTURE / "config"),
-            "out",
-        ]
-        with mock.patch.object(sys, "argv", argv), mock.patch.object(
-            run_pipeline.subprocess, "run"
-        ) as run:
-            with self.assertRaises(SystemExit) as raised:
-                run_pipeline.main()
-        self.assertEqual(raised.exception.code, 1)
-        run.assert_called_once()
-        self.assertIn("demux_hybrid.sh", run.call_args.args[0][1])
+    def test_ampliseq_command_and_resource_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target_dir = Path(temporary)
+            write_resource_config(target_dir, 4)
+            self.assertEqual(
+                (target_dir / "resources.config").read_text(),
+                "executor.cpus = 4\nprocess.resourceLimits = [cpus: 4]\n",
+            )
+            self.assertEqual(
+                ampliseq_command(FIXTURE / "config", target_dir, "local"),
+                [
+                    "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
+                    "-profile", "local",
+                    "-c", str(FIXTURE / "config/ampliseq.config"),
+                    "-c", str(target_dir / "resources.config"),
+                    "-params-file", str(target_dir / "params.yaml"),
+                ],
+            )
+
+    def test_check_nextflow_requires_version_26(self) -> None:
+        def completed(version: str) -> subprocess.CompletedProcess:
+            return subprocess.CompletedProcess([], 0, stdout=f"\n  version {version} build 1\n")
+
+        with mock.patch.object(
+            run_pipeline.subprocess, "run", return_value=completed("26.04.0")
+        ):
+            check_nextflow()
+        with mock.patch.object(
+            run_pipeline.subprocess, "run", return_value=completed("25.10.4")
+        ):
+            with self.assertRaisesRegex(SystemExit, "26 or higher"):
+                check_nextflow()
+        with mock.patch.object(
+            run_pipeline.subprocess, "run", side_effect=FileNotFoundError
+        ):
+            with self.assertRaisesRegex(SystemExit, "not found"):
+                check_nextflow()
+
+    def test_execution_runs_demux_then_ampliseq_then_stops(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            argv = [
+                "run_pipeline.py",
+                "run.fastq.gz",
+                str(FIXTURE / "manifest.tsv"),
+                str(FIXTURE / "config"),
+                str(Path(temporary) / "out"),
+            ]
+            target_dir = Path(temporary) / "out/ampliseq/COI"
+
+            def fake_run(command, **kwargs):
+                if "prepare_inputs.py" in command[1]:
+                    target_dir.mkdir(parents=True)
+
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(
+                run_pipeline, "check_nextflow"
+            ), mock.patch.object(
+                run_pipeline.subprocess, "run", side_effect=fake_run
+            ) as run:
+                with self.assertRaises(SystemExit) as raised:
+                    run_pipeline.main()
+
+            self.assertEqual(raised.exception.code, 1)
+            commands = [call.args[0] for call in run.call_args_list]
+            self.assertIn("demux_hybrid.sh", commands[0][1])
+            self.assertIn("prepare_inputs.py", commands[1][1])
+            self.assertEqual(commands[2][:3], ["nextflow", "run", "nf-core/ampliseq"])
+            self.assertEqual(run.call_args_list[2].kwargs["cwd"], target_dir)
 
     def test_dry_run_prints_plan_without_creating_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -168,8 +226,9 @@ class ScaffoldTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            plan, demux_line = result.stdout.rsplit("Demux command: ", 1)
-            self.assertIn("demux_hybrid.sh", demux_line)
+            plan, commands = result.stdout.split("Demux command: ", 1)
+            self.assertIn("demux_hybrid.sh", commands)
+            self.assertIn("Ampliseq command (COI): nextflow run", commands)
             self.assertEqual(
                 plan,
                 "Method: hybrid\n"

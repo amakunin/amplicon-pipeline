@@ -238,12 +238,18 @@ verified, and failures stop the run with a clear message.
 - **Review gate:** developer approves the samplesheet, the empty-sample list
   and the parameter file layout.
 
-### M5b - Launch ampliseq for one target [ ]
+### M5b - Launch ampliseq per target [x]
 - Driver builds the `nextflow run nf-core/ampliseq -r 3.0.0` command with
   `-profile`, `-c ampliseq.config`, a generated resource config and
   `-params-file`, run from `<output_dir>/ampliseq/<target>/`.
-- Single `threads` key shared by demux and ampliseq; resource config sets
-  CPU limits; memory limits stay in the user's `ampliseq.config`.
+- Top-level `threads` shared by demux and ampliseq; the generated resource
+  config sets `executor.cpus` and a CPU limit; memory limits stay in the
+  user's `ampliseq.config`. `--profile local|lsf` selects the profile; there
+  is no profile config key.
+- Fixture `local` profile: 1 CPU and 1 GB per task as a starting point.
+- Targets run one after another; a failure stops the loop.
+- Before demux, the driver checks that `nextflow` is on `PATH` and is
+  version 26 or higher (required by ampliseq 3.0.0).
 - Tests check command construction and generated files; Nextflow is run
   manually.
 - **Review gate:** developer approves the command, directory layout and
@@ -259,6 +265,12 @@ verified, and failures stop the run with a clear message.
 - Rerun after an interrupt and after a config change; nothing is deleted
   automatically.
 - **Review gate:** developer approves rerun behaviour.
+
+### M5e - Review demux resume logic [ ]
+- Review whether and how the demux step is skipped or validated on rerun
+  (currently the demux script refuses an existing output directory).
+- Decide the completion record for demux together with M5d.
+- **Review gate:** developer approves demux rerun behaviour.
 
 ## M6 - Multi-target ampliseq execution
 

@@ -3,8 +3,10 @@
 
 import argparse
 import csv
+import re
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -120,11 +122,71 @@ def demux_command(
         "--input", str(run_fastq.resolve()),
         "--output-dir", str(output_dir.resolve() / "demux"),
         "--barcode-dir", str(demux["barcode_dir"]),
-        "--threads", str(demux["threads"]),
+        "--threads", str(config["threads"]),
     ]
     if demux.get("dorado_exec"):
         command += ["--dorado", str(demux["dorado_exec"])]
     return command
+
+
+def check_nextflow() -> None:
+    try:
+        output = subprocess.run(
+            ["nextflow", "-version"], capture_output=True, text=True, check=True
+        ).stdout
+    except FileNotFoundError:
+        raise SystemExit("nextflow not found on PATH (version 26 or higher required)")
+    version = re.search(r"version (\d+)", output)
+    if version is None or int(version.group(1)) < 26:
+        raise SystemExit(f"nextflow 26 or higher is required by ampliseq 3.0.0:{output}")
+
+
+def write_resource_config(target_dir: Path, threads: int) -> Path:
+    path = target_dir / "resources.config"
+    path.write_text(
+        f"executor.cpus = {threads}\n"
+        f"process.resourceLimits = [cpus: {threads}]\n"
+    )
+    return path
+
+
+def ampliseq_command(
+    config_dir: Path, target_dir: Path, profile: str
+) -> list[str]:
+    return [
+        "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
+        "-profile", profile,
+        "-c", str(config_dir.resolve() / "ampliseq.config"),
+        "-c", str(target_dir / "resources.config"),
+        "-params-file", str(target_dir / "params.yaml"),
+    ]
+
+
+def run_ampliseq(
+    config: dict[str, Any],
+    args: argparse.Namespace,
+) -> None:
+    ampliseq_dir = args.output_dir.resolve() / "ampliseq"
+    for target in config["targets"]:
+        subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "scripts/prepare_inputs.py"),
+                "--manifest", str(args.manifest_tsv),
+                "--config-dir", str(args.config_dir),
+                "--demux-dir", str(args.output_dir.resolve() / "demux"),
+                "--target", target,
+                "--output-dir", str(ampliseq_dir),
+            ],
+            check=True,
+        )
+        target_dir = ampliseq_dir / target
+        write_resource_config(target_dir, config["threads"])
+        subprocess.run(
+            ampliseq_command(args.config_dir, target_dir, args.profile),
+            cwd=target_dir,
+            check=True,
+        )
 
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
@@ -142,8 +204,8 @@ def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "ONT amplicon pipeline scaffold. Only demultiplexing runs; later "
-            "stages are not implemented."
+            "ONT amplicon pipeline scaffold. Only demultiplexing and ampliseq "
+            "run; later stages are not implemented."
         )
     )
     parser.add_argument("run_fastq_gz", type=Path, help="Raw run FASTQ (.fastq.gz)")
@@ -154,7 +216,7 @@ def main() -> None:
         "--profile",
         choices=("local", "lsf"),
         default="local",
-        help="Execution environment (default: local; not yet implemented)",
+        help="Nextflow profile from ampliseq.config (default: local)",
     )
     parser.add_argument(
         "--dry-run",
@@ -168,13 +230,17 @@ def main() -> None:
     if args.dry_run:
         print_plan(config, samples)
         print(f"Demux command: {shlex.join(command)}")
+        for target in config["targets"]:
+            target_dir = args.output_dir.resolve() / "ampliseq" / target
+            ampliseq = ampliseq_command(args.config_dir, target_dir, args.profile)
+            print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")
         return
+    check_nextflow()
     subprocess.run(command, check=True)
+    run_ampliseq(config, args)
     parser.exit(
         status=1,
-        message=(
-            "Stages after demultiplexing are not implemented.\n"
-        ),
+        message="Stages after ampliseq are not implemented.\n",
     )
 
 

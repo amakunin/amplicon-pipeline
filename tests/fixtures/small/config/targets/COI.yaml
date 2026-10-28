@@ -13,6 +13,7 @@ skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
+skip_qiime: true
 ignore_empty_input_files: true
 ignore_failed_filtering: true
 ignore_failed_trimming: true

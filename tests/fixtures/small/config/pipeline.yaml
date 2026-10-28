@@ -1,4 +1,6 @@
 # Fixture-specific site settings.
+threads: 4  # Used by demultiplexing and as the ampliseq CPU limit.
+
 targets:
   COI: targets/COI.yaml
 
@@ -8,4 +10,3 @@ demux:
   barcode_dir: ../../../../assets/barcodes
   ont_barcode_mapping: ../../../../assets/barcodes/ONT_nb24_barcode.tsv
   reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv
-  threads: 4

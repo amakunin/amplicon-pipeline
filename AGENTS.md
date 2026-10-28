@@ -5,23 +5,40 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 
 ## Working rules
 
-- Work on one milestone at a time, in order. Stop at its review gate and
-  summarise what changed, what was verified and any open questions.
-- Do not start the next milestone, or add features beyond the current one,
-  without developer approval.
-- Ask rather than guess when a scientific definition, threshold, schema or
-  site-specific detail is undecided. Do not invent reporting thresholds.
+- Work on one milestone step at a time, in order. After each step, stop at its
+  review gate. Do not start the next step, or add anything beyond the current
+  one, without developer approval.
+- **Propose before coding.** Before writing code, post a short proposal in chat:
+  the files to touch, function names and signatures, the data flow, and what is
+  deliberately not handled. Wait for explicit approval. If the step does not
+  fit the step budget in MILESTONES.md, split it and say so.
+- **No unapproved structure.** Do not add files, modules, classes, CLI options,
+  config keys, dependencies or output formats that the approved proposal did
+  not name. Code goes where the milestone says; if unclear, ask.
+- **Do not invent rules.** Naming patterns, thresholds, defaults, schemas and
+  scientific definitions come from the developer. Ask instead of choosing.
+- **Prefer readable code over exhaustive code.** No custom exception classes,
+  defensive checks or error aggregation unless requested. Let standard Python
+  errors surface (`KeyError`, `FileNotFoundError`, ...). Add a clear message
+  only where the standard error would be confusing, and say where.
+- **Report each step briefly:** files changed with approximate line counts,
+  what was verified and how to rerun it, and open questions. Do not chain steps
+  or run long unattended.
 - Keep changes small and reviewable. Do not refactor unrelated code.
-- Update the README, this file or the milestone checklist when a change makes
-  them wrong.
-
+- Update the README, this file or the milestone checklist only where a change
+  makes them wrong. Do not expand documentation speculatively.
+- **Be brief.** Keep chat replies, proposals and any text written into
+  repository files as short as the content allows: a few sentences or bullets,
+  no restating of context, and no lists of every possibility. Offer detail
+  only when asked.
 
 ## Repository structure
 
 | Path | Purpose |
 |---|---|
-| `run_pipeline.py` | Fixed-order orchestration entrypoint |
-| `scripts/demux_hybrid.sh` | Dorado hybrid demultiplexing |
+| `run_pipeline.py` | Fixed-order orchestration entrypoint, config loading, manifest handling and the dry-run |
+| `scripts/demux_illumina.sh` | Dorado Illumina F & R demultiplexing |
+| `scripts/demux_hybrid.sh` | Dorado hybrid ONT and R Illumina demultiplexing |
 | `scripts/prepare_inputs.py` | Barcode/sample mapping and per-target ampliseq samplesheets |
 | `scripts/summarise_asvs.py` | Savont counts, sequences and taxonomy into stable tables |
 | `scripts/summarise_samples.py` | Manifest-driven sample annotations and QC outcomes |
@@ -62,10 +79,11 @@ Stage scripts other than `run_pipeline.py` are currently placeholders.
 - Target routing (one or several targets per demultiplexed FASTQ) and the
   manifest schema are undecided. See the milestones.
 - The raw run FASTQ is never passed directly to ampliseq.
+- Demultiplexing method is demux.method (hybrid or illumina); the manifest requirements follow it (see MILESTONES.md M2).
 
 ## Coding conventions
 
-- Python 3.12, standard library only unless a milestone approves a dependency.
+- Python 3.12, standard library plus PyYAML. Other dependencies need approval.
   Use type hints and `pathlib`.
 - Scripts take explicit arguments, fail with a non-zero exit code and a clear
   message, and do not read hidden state or environment.
@@ -79,19 +97,14 @@ Stage scripts other than `run_pipeline.py` are currently placeholders.
 
 ## Testing
 
-Use the development environment defined in [env.yaml](env.yaml). It provides
-Python 3.12 and seqtk; Nextflow/Java, the container runtime and Dorado remain
-external. Do not assume terminal activation persists between agent shell calls.
-When the developer supplies the environment prefix and Conda executable path,
-use that executable with `conda run --no-capture-output -p <prefix>` for each
-environment-dependent command. Never commit machine-specific environment paths.
-
 ```bash
 python -m unittest discover -s tests -v
 bash -n scripts/demux_hybrid.sh
 ```
 
-- Add or update tests with each change. Use `unittest`.
+- Keep tests few and readable: one test file per feature, the happy path on the
+  fixture, and a failure case only where a mistake would be silent or costly.
+  No test-helper modules or exhaustive error matrices unless requested.
 - Tests must not require Dorado, Nextflow, containers or network access.
   Integration runs against the fixture are manual and recorded in the
   milestone notes.
@@ -102,5 +115,4 @@ bash -n scripts/demux_hybrid.sh
 
 ## Git
 
-- Small commits with imperative messages; one milestone per branch or PR.
-- Do not commit generated outputs, `work/`, `.nextflow*`, logs or credentials.
+The developer owns the repository history. Agents use git read-only.

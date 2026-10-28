@@ -8,9 +8,25 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "tests/fixtures/coi_small"
+sys.path.insert(0, str(ROOT))
+
+from run_pipeline import load_config
 
 
 class ScaffoldTests(unittest.TestCase):
+    def test_load_fixture_config(self) -> None:
+        config, targets = load_config(FIXTURE / "config")
+        self.assertEqual(config["demux"]["method"], "hybrid")
+        self.assertEqual(
+            config["demux"]["reverse_barcode_mapping"],
+            ROOT / "assets/barcodes/Sanger_custom_barcode_R.tsv",
+        )
+        self.assertEqual(
+            config["targets"]["COI"], FIXTURE / "config/targets/COI.yaml"
+        )
+        self.assertEqual(targets["COI"]["asv_calling"], "savont")
+
     def test_help(self) -> None:
         result = subprocess.run(
             [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],
@@ -46,7 +62,7 @@ class ScaffoldTests(unittest.TestCase):
                             str(ROOT / "run_pipeline.py"),
                             "run.fastq.gz",
                             "manifest.tsv",
-                            str(ROOT / "config/example"),
+                            str(FIXTURE / "config"),
                             str(directory / "output"),
                             "--profile",
                             profile,

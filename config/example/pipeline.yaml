@@ -1,9 +1,9 @@
-# Template only: configuration loading and validation are not implemented.
-# Relative resource paths will resolve against the supplied config_dir.
+# Relative resource paths resolve against the supplied config_dir.
 targets:
   COI: targets/COI.yaml
 
 demux:
+  method: hybrid  # hybrid or illumina.
   dorado_exec: null  # Required: absolute executable path.
   seqtk_exec: null  # Required: absolute executable path.
   ont_kit: SQK-NBD114-24

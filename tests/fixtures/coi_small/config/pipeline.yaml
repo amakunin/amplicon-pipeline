@@ -1,8 +1,9 @@
-# Fixture-specific site settings. The scaffold does not load this file yet.
+# Fixture-specific site settings.
 targets:
   COI: targets/COI.yaml
 
 demux:
+  method: hybrid
   dorado_exec: /software/sciops/external/ont-dorado/0.8.2/bin/dorado
   seqtk_exec: /software/treeoflife/shpc/0.1.26/wrapper/quay.io/biocontainers/seqtk/1.4--he4a0461_1/bin/seqtk
   ont_kit: SQK-NBD114-24

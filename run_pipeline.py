@@ -3,6 +3,41 @@
 
 import argparse
 from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    config_dir = config_dir.resolve()
+    with (config_dir / "pipeline.yaml").open() as handle:
+        config = yaml.safe_load(handle)
+
+    demux = config["demux"]
+    if demux["method"] not in ("hybrid", "illumina"):
+        raise ValueError("demux.method must be 'hybrid' or 'illumina'")
+    for key in (
+        "reverse_barcode_fasta",
+        "reverse_barcode_arrangement",
+        "ont_barcode_mapping",
+        "front_barcode_mapping",
+        "reverse_barcode_mapping",
+    ):
+        if key in demux:
+            demux[key] = (config_dir / demux[key]).resolve()
+
+    targets = {}
+    for name, filename in config["targets"].items():
+        path = (config_dir / filename).resolve()
+        config["targets"][name] = path
+        with path.open() as handle:
+            parameters = yaml.safe_load(handle)
+        if "sintax_ref" in parameters:
+            parameters["sintax_ref"] = str(
+                (config_dir / parameters["sintax_ref"]).resolve()
+            )
+        targets[name] = parameters
+    return config, targets
 
 
 def main() -> None:
@@ -22,12 +57,13 @@ def main() -> None:
         default="local",
         help="Execution environment (default: local; not yet implemented)",
     )
-    parser.parse_args()
+    args = parser.parse_args()
+    load_config(args.config_dir)
     parser.exit(
         status=1,
         message=(
-            "Pipeline execution is not implemented. This scaffold does not "
-            "read inputs, launch jobs or create outputs.\n"
+            "Pipeline execution is not implemented. Configuration was loaded; "
+            "no jobs were launched or outputs created.\n"
         ),
     )
 

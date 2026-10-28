@@ -1,8 +1,12 @@
 # Milestones
 
-Each milestone is implemented by an agent as one unit of work, following
-[AGENTS.md](AGENTS.md). After each one the developer reviews the code, records
-decisions and adjusts the later milestones before the next starts.
+Each milestone is split into small steps that the developer reviews one at a
+time, following [AGENTS.md](AGENTS.md). After each step the developer reviews
+the code, records decisions and adjusts later steps before the next starts.
+
+**Step budget:** a step touches at most about 3 files and adds about 100-150
+lines of code, excluding the fixture and docs. If it does not fit, split it
+before starting. Each step begins with a structure proposal (see AGENTS.md).
 
 Status: `[ ]` not started, `[~]` in progress, `[x]` done and reviewed.
 Milestones after M3 are deliberately less detailed; refine them at the review
@@ -16,7 +20,7 @@ gate before them.
 
 ## M1 - Public repository readiness
 
-[~]
+[x]
 
 **Goal:** the repository can be published without leaking site details.
 
@@ -34,24 +38,39 @@ tests pass and CI is green.
 
 ## M2 - Configuration and manifest validation
 
-[ ]
+**Goal:** `run_pipeline.py` loads and checks its inputs and stops, without
+running any analysis. All code stays in `run_pipeline.py` for now.
 
-**Goal:** `run_pipeline.py` validates its inputs and stops, without running
-any analysis.
+**Decisions made:** PyYAML is the YAML library. `demux.method` in
+`pipeline.yaml` is `hybrid` or `illumina`, with no default. Manifest columns:
+`sample_id` always; `ont_barcode` and `rear_barcode` for `hybrid`;
+`front_barcode` and `rear_barcode` for `illumina`; other columns are carried
+through unvalidated. Barcodes are matched case-insensitively against the
+mapping files named in `pipeline.yaml`. Sample IDs must be unique, and so must
+each forward/rear barcode pair. No `target` column until M4.
 
-**Tasks**
-- Load `pipeline.yaml` and target YAML files. YAML needs a decision first:
-  add PyYAML, or write a minimal parser.
-- Propose and document the manifest schema. Start from the columns in
-  `tests/fixtures/coi_small/manifest.tsv`.
-- Validate paths, required fields, duplicate samples, and barcode agreement
-  between the manifest and `assets/barcodes/`.
-- Add `--dry-run` that prints the resolved plan.
+### M2a - Load configuration [ ]
+- Load `pipeline.yaml` and the target YAML files into plain dicts. Relative
+  paths resolve against the config directory.
+- Check only that `demux.method` is a known value; other problems surface as
+  Python errors. Path and executable checks happen when a path is first used.
+- One small test: the fixture config loads.
+- **Review gate:** developer approves the loading structure.
 
-**Done when:** the fixture config and manifest validate and bad inputs give
-clear errors, covered by unit tests.
+### M2b - Read the manifest [ ]
+- Read the manifest for the chosen method, look up barcodes in the mappings
+  and report an unknown barcode with its sample name. Also report duplicate
+  sample IDs and duplicate barcode pairs.
+- One small test on the fixture manifest, plus one failing case.
+- **Review gate:** developer approves the manifest schema as implemented.
 
-**Review gate:** developer approves the manifest schema and the YAML decision.
+### M2c - Dry run [ ]
+- Add `--dry-run`: print what was loaded (method, targets, samples with
+  barcode indices) and exit without creating anything. Without it, stop after
+  loading with "not implemented".
+- **Done when:** the fixture config and manifest load and the dry-run prints
+  the plan.
+- **Review gate:** developer checks the dry-run output.
 
 ## M3 - Demultiplexing
 

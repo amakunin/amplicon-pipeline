@@ -1,6 +1,0 @@
-sample_id	ont_barcode_id	rear_barcode_id	expected_reads
-ANLCx_001_A1	09	01	positive
-ANLCx_001_B1	09	02	zero
-ANLCx_001_C1	09	03	positive
-ANLCx_001_D1	09	04	zero
-ANLCx_001_E1	09	05	positive

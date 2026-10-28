@@ -75,26 +75,28 @@ manifest; every configured target runs against the demultiplexed samples.
 
 ## M3 - Mixed-target integration fixture
 
-[ ]
+[~]
 
 **Goal:** one small, realistic mixed-amplicon dataset supports integration
 testing from demultiplexing through plots.
 
 **Tasks**
-- Developer prepares raw reads containing multiple amplicons, with a manifest
-  and configurations for both hybrid and Illumina demultiplexing.
+- Developer prepares raw reads containing multiple amplicons and a manifest
+  suitable for both hybrid and Illumina demultiplexing.
 - Record provenance, redistribution approval, checksums and known expectations;
   distinguish these from results awaiting validation at later milestones.
 - Establish the fixture as the primary integration dataset. Keep small
   synthetic tests for errors and edge cases; scaling is covered in M10.
 
-**Done when:** the dataset and configuration load, its integrity is verified,
-and expected coverage of both methods and multiple targets is documented.
+**Done when:** the dataset and manifest load, integrity is verified, and
+expected coverage of both methods and multiple targets is documented.
+Demultiplexing configuration follows in M4; additional target configuration
+follows in M6.
 
 **Review gate:** developer approves the fixture and expectations. Retiring the
 existing COI fixture is not required.
 
-### M3a - Prepare mixed-target read selection [ ]
+### M3a - Prepare mixed-target read selection [x]
 - Agree which samples and targets the fixture should cover and how reads
   will be selected.
 - Adapt the read-ID extraction helper for the agreed mixed-target selection;
@@ -103,11 +105,11 @@ existing COI fixture is not required.
 - **Review gate:** developer approves the selection behavior before preparing
   the new dataset.
 
-### M3b - Establish the small fixture [ ]
-- Developer supplies selected read IDs, recovered raw reads and an updated
-  manifest with real barcodes.
-- Rename the primary fixture directory to `tests/fixtures/small/` and update
-  its configuration for the selected targets and both demultiplexing methods.
+### M3b - Establish the small fixture [~]
+- Developer supplies recovered raw reads and an updated manifest with real
+  barcodes; the extraction ID list need not be retained.
+- Rename the primary fixture directory to `tests/fixtures/small/`, retaining
+  existing configuration until M4 and M6.
 - Record provenance, redistribution approval, checksums and developer-approved
   expectations, including expected samples with no reads. Mark outcomes not
   yet verified by analysis.
@@ -116,8 +118,8 @@ existing COI fixture is not required.
 ### M3c - Align tests and documentation [ ]
 - Update fixture references and assertions to the approved samples, barcode
   indices and configured targets.
-- Verify FASTQ integrity, unique read IDs, agreement with the selected-ID
-  list, checksums, and configuration/manifest loading for both methods.
+- Verify FASTQ integrity, unique read IDs, the approved record count,
+  checksums, and loading with the existing configuration and new manifest.
 - Verify dry-run output and no output creation; retain synthetic helper and
   failure tests.
 - Update fixture documentation and repository references affected by the rename.
@@ -135,6 +137,7 @@ and account for all expected samples.
 **Tasks**
 - Adapt the developer-provided hybrid and Illumina scripts, with executables
   and resources from configuration and no unconditional site setup.
+- Establish fixture configuration for both demultiplexing methods.
 - Produce per-sample FASTQs, barcode mappings and read counts in `demux/`.
 - Validate both methods against the mixed-target fixture and record commands,
   versions and counts.
@@ -181,6 +184,8 @@ samples, with independent outputs and execution state.
 **Tasks**
 - Extend the single-target workflow to all configured targets, without
   preassigning samples or reads to targets in the driver.
+- Add developer-approved fixture configurations for ITS2, CytB and P3
+  alongside COI.
 - Validate the mixed-target fixture across targets, retaining sample/target
   accounting and safe rerun behavior.
 

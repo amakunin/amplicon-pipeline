@@ -1,0 +1,6 @@
+sample_id	ont_barcode_id	rear_barcode_id	expected_reads
+ANLCx_002_A12	10	89	positive
+BFHK_023_H8	16	64	positive
+BFHK_023_A2	16	09	positive
+ANLCx_001_A1	09	01	zero
+ANLCx_001_B1	09	02	zero

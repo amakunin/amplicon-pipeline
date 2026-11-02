@@ -146,6 +146,73 @@ class CommandRestartTests(unittest.TestCase):
                 ],
             )
 
+    def test_multiple_targets_stop_on_failure_and_resume_independently(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary)
+            run_fastq = output_dir / "run.fastq.gz"
+            run_fastq.write_bytes(b"raw run")
+            config, _ = load_config(FIXTURE / "config")
+            args = SimpleNamespace(
+                config_dir=FIXTURE / "config",
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=output_dir,
+                profile="local",
+                run_fastq_gz=run_fastq,
+            )
+            launches = []
+            fail_target = "CytB"
+
+            def fake_run(command, **kwargs):
+                if command[0] == "nextflow":
+                    target_dir = kwargs["cwd"]
+                    launches.append(target_dir.name)
+                    if target_dir.name == fail_target:
+                        raise subprocess.CalledProcessError(1, command)
+                    results = target_dir / "results"
+                    results.mkdir()
+                    (results / "overall_summary.tsv").write_text(
+                        f"{target_dir.name}\n"
+                    )
+                else:
+                    target = command[command.index("--target") + 1]
+                    target_dir = output_dir / "ampliseq" / target
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    (target_dir / "samplesheet.tsv").write_text("sample\tfastq_1\n")
+                    (target_dir / "excluded_samples.tsv").write_text(
+                        "sample_id\treason\n"
+                    )
+                    (target_dir / "params.yaml").write_text(
+                        f"input: {target_dir / 'samplesheet.tsv'}\n"
+                        f"outdir: {target_dir / 'results'}\n"
+                    )
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(
+                run_pipeline.subprocess, "run", side_effect=fake_run
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    run_ampliseq(config, args)
+                self.assertEqual(launches, ["COI", "CytB"])
+                self.assertTrue(
+                    (output_dir / "ampliseq/COI/.completion.json").exists()
+                )
+                self.assertFalse(
+                    (output_dir / "ampliseq/CytB/.completion.json").exists()
+                )
+                self.assertFalse((output_dir / "ampliseq/ITS2").exists())
+
+                fail_target = None
+                launches.clear()
+                run_ampliseq(config, args)
+                self.assertEqual(launches, ["CytB", "ITS2", "P3"])
+                for target in config["targets"]:
+                    target_dir = output_dir / "ampliseq" / target
+                    self.assertTrue((target_dir / ".completion.json").exists())
+                    self.assertEqual(
+                        (target_dir / "results/overall_summary.tsv").read_text(),
+                        f"{target}\n",
+                    )
+
     def test_ampliseq_completion_record_and_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary) / "output"

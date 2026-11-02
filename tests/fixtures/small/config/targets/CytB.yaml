@@ -22,6 +22,7 @@ skip_tse: true
 skip_qiime: true
 skip_fastqc: true
 skip_parquet_summary: true
+skip_multiqc: true
 
 # Ignores: continue past empty inputs and failed filtering/trimming.
 ignore_empty_input_files: true

@@ -330,7 +330,7 @@ state, with empty or failed sample/target outcomes accounted for.
 **Review gate:** developer inspects multi-target results and published Savont
 outputs before summary schemas are defined.
 
-### M6a - Align target configurations [ ]
+### M6a - Align target configurations [x]
 - Update the existing small fixture config to enable COI, CytB, ITS2 and P3
   in alphabetical order; use developer-supplied P3 parameters.
 - Arrange example and fixture target YAML sections consistently: input,
@@ -351,6 +351,9 @@ outputs before summary schemas are defined.
 - Extend `CommandRestartTests` to check target order, independent state and
   stopping before the next target after failure. Update fixture expectations
   for the four configured targets; no parallel execution or new options.
+- Existing synchronous driver loop retained. One four-target test checks
+  failure stopping, separate results/records and skipping a completed target
+  while resuming the remaining targets.
 - **Review gate:** developer approves orchestration and tests.
 
 ### M6c - Validate the four-target fixture [ ]
@@ -385,6 +388,9 @@ in M5-M6, with tests on small captured output.
   preprocessing loss, no ASVs, unresolved taxonomy, QC rejection, processing
   failure.
 - Reporting thresholds stay unset until the developer defines them.
+- Resolve taxonomy-reporting inconsistencies across amplicons, still observed
+  after the M6 fixture rerun with corrected P3 taxonomic levels. Agree the
+  reporting rules with the developer before implementation.
 
 **Review gate:** developer agrees the QC definitions and denominators.
 

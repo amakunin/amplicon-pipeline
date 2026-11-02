@@ -12,13 +12,17 @@ savont_options: "--min-read-length 300 --max-read-length 500"
 
 # SINTAX: custom reference and taxonomy rank order.
 sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
-sintax_assign_taxlevels: "Domain,Phylum,Class,Order,Family,Genus,Species,Strain"
+sintax_assign_taxlevels: "Domain,Phylum,Order,Family,Genus,Subgenus,Group,Species"
 
 # Skips: disable unused analysis and reporting steps.
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
+skip_qiime: true
+skip_fastqc: true
+skip_parquet_summary: true
+skip_multiqc: true
 
 # Ignores: continue past empty inputs and failed filtering/trimming.
 ignore_empty_input_files: true

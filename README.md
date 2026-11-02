@@ -9,9 +9,9 @@ and a sample manifest, it will:
 3. summarise ASVs and per-sample outcomes into stable tables,
 4. plot the results.
 
-> **Status: scaffold.** Only the command-line interface, configuration
-> templates, barcode assets and a small test fixture exist. Running the
-> pipeline exits with an explicit error and creates no outputs. See
+> **Status: in development.** Demultiplexing, per-target ampliseq and ASV
+> aggregation run. The pipeline then exits with an explicit error because
+> sample summaries and plots are not yet implemented. See
 > [MILESTONES.md](MILESTONES.md) for progress and the development plan.
 
 ## Requirements
@@ -121,7 +121,9 @@ output_dir/
     .nextflow.log
     work/                   # retained task files
     results/                # published ampliseq outputs
-  summary/                  # planned ASV, count and sample/target QC tables
+  summary/
+    asvs.tsv                # unique target-ASVs and reported taxonomy
+    assignments.tsv         # non-zero sample-target-ASV counts
   plots/                    # planned
 ```
 
@@ -141,11 +143,46 @@ Counts, sequences and taxonomy share ASV IDs. These are observed pooled-mode,
 custom-reference filenames, not yet a contract for other inference/database modes.
 Future sample summaries must include every manifest sample, including those
 without reads; input preparation currently records these in `excluded_samples.tsv`.
+
+### ASV aggregation
+
+The standalone aggregator reads one pooled Savont feature table and one
+processed/raw SINTAX table pair per target:
+
+```bash
+python scripts/summarise_asvs.py \
+    --target COI output_dir/ampliseq/COI/results \
+    --target CytB output_dir/ampliseq/CytB/results \
+    --output-dir output_dir/summary
+```
+
+Repeat `--target TARGET RESULTS_DIR` for each target. The driver runs this
+command after all configured ampliseq targets finish and includes it in
+`--dry-run`. No external tools are needed to aggregate existing outputs.
+
+- `asvs.tsv`: one row per target-ASV, with `target`, `asv_id`, `sequence`,
+  `length`, the union of reported taxonomy-rank columns, `confidence`,
+  `sintax_raw_taxonomy`, `sintax_strand` and `sintax_filtered_taxonomy`.
+  Taxonomy strings and confidence values are unchanged; absent ranks are blank.
+- `assignments.tsv`: one row per non-zero sample-target-ASV assignment, with
+  `sample_id`, `target`, `asv_id` and integer `read_count`.
+
+Rows follow supplied target and source-table order; rank columns follow first
+appearance, including headers from empty targets. Empty targets contribute no
+rows; both output files always have headers. Missing tables, duplicate IDs and
+inconsistent IDs fail rather than silently dropping evidence. All inputs are
+parsed before replacing the two summary files. No QC, filtering, ratios or
+taxonomy normalization are applied; absent assignments are not sample outcomes.
+
+### Restart handling
+
 Demultiplexing is skipped only when its record matches the run, manifest,
 configuration, barcode resources and all generated files. An existing partial
 or stale demux directory causes a clear error and is left untouched. For each
 target, ampliseq is skipped only when its input, configuration, selected profile
 and published result files match; otherwise Nextflow runs with `-resume`.
+ASV aggregation always reruns, including when all ampliseq targets are skipped,
+replacing its two summary tables from the current published results.
 
 ## Tests
 

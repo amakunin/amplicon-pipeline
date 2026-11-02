@@ -357,6 +357,19 @@ def run_ampliseq(
         )
 
 
+def asv_summary_command(config: dict[str, Any], output_dir: Path) -> list[str]:
+    output_dir = output_dir.resolve()
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/summarise_asvs.py"),
+    ]
+    for target in config["targets"]:
+        command += [
+            "--target", target, str(output_dir / "ampliseq" / target / "results"),
+        ]
+    return command + ["--output-dir", str(output_dir / "summary")]
+
+
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     print(f"Method: {config['demux']['method']}")
     print(f"Targets: {', '.join(config['targets'])}")
@@ -372,8 +385,8 @@ def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "ONT amplicon pipeline scaffold. Only demultiplexing and ampliseq "
-            "run; later stages are not implemented."
+            "ONT amplicon pipeline scaffold. Demultiplexing, ampliseq and ASV "
+            "aggregation run; later stages are not implemented."
         )
     )
     parser.add_argument("run_fastq_gz", type=Path, help="Raw run FASTQ (.fastq.gz)")
@@ -395,6 +408,7 @@ def main() -> None:
     config, _ = load_config(args.config_dir)
     samples = read_manifest(args.manifest_tsv, config)
     command = demux_command(config, args.run_fastq_gz, args.output_dir)
+    summary_command = asv_summary_command(config, args.output_dir)
     if args.dry_run:
         print_plan(config, samples)
         print(f"Demux command: {shlex.join(command)}")
@@ -402,13 +416,15 @@ def main() -> None:
             target_dir = args.output_dir.resolve() / "ampliseq" / target
             ampliseq = ampliseq_command(args.config_dir, target_dir, args.profile)
             print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")
+        print(f"ASV summary command: {shlex.join(summary_command)}")
         return
     check_nextflow()
     run_demux(config, args)
     run_ampliseq(config, args)
+    subprocess.run(summary_command, check=True)
     parser.exit(
         status=1,
-        message="Stages after ampliseq are not implemented.\n",
+        message="Stages after ASV aggregation are not implemented.\n",
     )
 
 

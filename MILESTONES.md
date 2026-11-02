@@ -359,7 +359,7 @@ outputs before summary schemas are defined.
 
 ## M7 - ASV summaries
 
-[ ]
+[~]
 
 **Goal:** stable ASV count, sequence and taxonomy tables from Savont outputs.
 
@@ -367,6 +367,39 @@ outputs before summary schemas are defined.
 in M5-M6, with tests on small captured output.
 
 **Review gate:** developer approves the table schemas.
+
+### M7a - Standalone aggregation
+
+[x]
+
+- Approved two TSV tables: unique target-ASVs with sequences, lengths,
+  unchanged reported taxonomy/confidence and all three raw SINTAX fields;
+  non-zero sample-target-ASV read assignments.
+- Implemented `scripts/summarise_asvs.py` with repeated
+  `--target TARGET RESULTS_DIR` and `--output-dir`. Taxonomy columns are the
+  union of reported ranks; absent ranks are blank. No QC or interpretation.
+- Test frozen four-target counts, sequences, taxonomy/raw calls, empty targets
+  and rejection of inconsistent/duplicate IDs without replacing existing output.
+- All 29 Python 3.12 offline tests pass, including three aggregation tests;
+  syntax and editor diagnostics report no errors in the new implementation.
+- Developer approved exceeding the usual review-size budget for this step.
+- **Review gate:** developer reviews the implementation and output tables.
+
+### M7b - Driver integration
+
+[~]
+
+- Added `asv_summary_command` in `run_pipeline.py`, shared by execution and
+  dry-run. Aggregate every configured target's published results into
+  `summary/asvs.tsv` and `summary/assignments.tsv` after ampliseq succeeds.
+- Always regenerate summaries, even when ampliseq skips completed targets;
+  no new completion records. Pass aggregation failures through unchanged.
+- Test command paths/order, actual aggregation of frozen outputs after mocked
+  external tools, summary regeneration on restart, dry-run and failure propagation.
+- Still exit explicitly for unimplemented stages after ASV aggregation.
+- All 30 Python 3.12 offline tests pass; syntax and editor diagnostics report
+  no errors in the changed Python files.
+- **Review gate:** developer approves integrated execution.
 
 ## M8 - Sample summaries
 

@@ -2,6 +2,8 @@
 
 import gzip
 from pathlib import Path
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -448,7 +450,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("required", result.stderr)
 
-    def test_execution_runs_demux_then_ampliseq_then_stops(self) -> None:
+    def test_execution_aggregates_after_ampliseq_and_after_restart(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             argv = [
                 "run_pipeline.py",
@@ -461,6 +463,7 @@ class CliTests(unittest.TestCase):
             target_dir = Path(temporary) / "out/ampliseq/CytB"
             config, targets = load_config(FIXTURE / "config")
             config["targets"] = {"CytB": config["targets"]["CytB"]}
+            real_run = subprocess.run
 
             def fake_run(command, **kwargs):
                 if "demux_" in command[1]:
@@ -484,9 +487,9 @@ class CliTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0)
                 if command[0] == "nextflow":
                     results_dir = target_dir / "results"
-                    results_dir.mkdir(parents=True, exist_ok=True)
-                    (results_dir / "overall_summary.tsv").write_text("result\n")
+                    shutil.copytree(FIXTURE / "ampliseq/CytB", results_dir)
                     return subprocess.CompletedProcess(command, 0)
+                return real_run(command, **kwargs)
 
             with mock.patch.object(sys, "argv", argv), mock.patch.object(
                 run_pipeline, "check_nextflow"
@@ -497,13 +500,58 @@ class CliTests(unittest.TestCase):
             ) as run:
                 with self.assertRaises(SystemExit) as raised:
                     run_pipeline.main()
+                self.assertEqual(raised.exception.code, 1)
+                commands = [call.args[0] for call in run.call_args_list]
+                self.assertIn("demux_illumina.sh", commands[0][1])
+                self.assertIn("prepare_inputs.py", commands[1][1])
+                self.assertEqual(commands[2][:3], ["nextflow", "run", "nf-core/ampliseq"])
+                self.assertEqual(run.call_args_list[2].kwargs["cwd"], target_dir)
+                expected_summary = [
+                    sys.executable, str(ROOT / "scripts/summarise_asvs.py"),
+                    "--target", "CytB", str(target_dir / "results"),
+                    "--output-dir", str(Path(argv[-1]) / "summary"),
+                ]
+                self.assertEqual(commands[3], expected_summary)
+                self.assertEqual(run.call_args_list[3].kwargs, {"check": True})
+                summary = Path(argv[-1]) / "summary"
+                before = {
+                    path.name: path.read_bytes() for path in summary.iterdir()
+                }
+                self.assertEqual(set(before), {"asvs.tsv", "assignments.tsv"})
+                self.assertIn(b"0aece8f365778d45", before["asvs.tsv"])
+                (summary / "assignments.tsv").unlink()
+                run.reset_mock()
+                with self.assertRaises(SystemExit) as raised:
+                    run_pipeline.main()
+                self.assertEqual(raised.exception.code, 1)
+                self.assertEqual(
+                    [call.args[0] for call in run.call_args_list][1:],
+                    [expected_summary],
+                )
+                self.assertEqual(
+                    {path.name: path.read_bytes() for path in summary.iterdir()},
+                    before,
+                )
 
-            self.assertEqual(raised.exception.code, 1)
-            commands = [call.args[0] for call in run.call_args_list]
-            self.assertIn("demux_illumina.sh", commands[0][1])
-            self.assertIn("prepare_inputs.py", commands[1][1])
-            self.assertEqual(commands[2][:3], ["nextflow", "run", "nf-core/ampliseq"])
-            self.assertEqual(run.call_args_list[2].kwargs["cwd"], target_dir)
+    def test_asv_summary_failure_propagates(self) -> None:
+        argv = [
+            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            str(FIXTURE / "config"), "out",
+        ]
+        failure = subprocess.CalledProcessError(2, ["summarise_asvs.py"])
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(
+            run_pipeline, "check_nextflow"
+        ), mock.patch.object(run_pipeline, "run_demux"), mock.patch.object(
+            run_pipeline, "run_ampliseq"
+        ), mock.patch.object(
+            run_pipeline.subprocess, "run", side_effect=failure
+        ) as run:
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                run_pipeline.main()
+        self.assertIs(raised.exception, failure)
+        run.assert_called_once()
+        self.assertIn("summarise_asvs.py", run.call_args.args[0][1])
+        self.assertEqual(run.call_args.kwargs, {"check": True})
 
     def test_dry_run_prints_plan_without_creating_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -529,6 +577,18 @@ class CliTests(unittest.TestCase):
             plan, commands = result.stdout.split("Demux command: ", 1)
             self.assertIn("demux_illumina.sh", commands)
             self.assertIn("Ampliseq command (CytB): nextflow run", commands)
+            summary_command = [
+                sys.executable, str(ROOT / "scripts/summarise_asvs.py"),
+            ]
+            for target in ("COI", "CytB", "ITS2", "P3"):
+                summary_command += [
+                    "--target", target,
+                    str(output_dir / "ampliseq" / target / "results"),
+                ]
+            summary_command += ["--output-dir", str(output_dir / "summary")]
+            self.assertTrue(commands.endswith(
+                f"ASV summary command: {shlex.join(summary_command)}\n"
+            ))
             self.assertEqual(
                 plan,
                 "Method: illumina\n"
@@ -547,7 +607,6 @@ class CliTests(unittest.TestCase):
         commands = [
             [sys.executable, str(ROOT / "scripts" / name)]
             for name in (
-                "summarise_asvs.py",
                 "summarise_samples.py",
                 "plot_summary.py",
             )

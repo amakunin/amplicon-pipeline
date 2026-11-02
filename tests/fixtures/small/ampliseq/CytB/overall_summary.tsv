@@ -1,0 +1,4 @@
+sample	chopper_input	chopper_output	cutadapt_total_processed	cutadapt_reverse_complemented	cutadapt_passing_filters	cutadapt_passing_filters_percent	savont_output
+ANLCx_002_A12	202	184	184	18	38	20.7%	29
+BFHK_023_A2	398	356	356	92	187	52.5%	177
+BFHK_023_H8	309	269	269	76	137	50.9%	131

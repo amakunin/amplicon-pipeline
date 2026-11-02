@@ -259,27 +259,8 @@ verified, and failures stop the run with a clear message.
 - Run one target on the small fixture with the local profile. Record the
   actual Savont output filenames and the output layout in the README.
 - **Review gate:** developer approves the recorded outputs.
-- Manual local/Singularity run (2026-10-28), CytB: 26 successful tasks,
-  no failed or ignored tasks. Output layout and filenames recorded in README.
-
-  | Sample | Chopper input | Chopper output | Primer-trimmed | Savont counts |
-  |---|---:|---:|---:|---:|
-  | ANLCx_002_A12 | 202 | 184 | 38 | 29 |
-  | BFHK_023_A2 | 398 | 356 | 187 | 177 |
-  | BFHK_023_H8 | 309 | 269 | 137 | 131 |
-
-- Two ASVs: `0aece8f365778d45` (177 + 131 reads; SINTAX Homo sapiens,
-  confidence 0.90) and `9e07fe1354e353c7` (29 reads; Bos indicus, 0.97).
-  Both have `ampliseq_accept=TRUE`; assignments are not independently verified.
-  IDs agree across counts, sequences and taxonomy. Two absent samples remain
-  in `excluded_samples.tsv`.
-- Future work: Savont automatically enabled low-polymorphism mode after an
-  88.51% no-SNPmer warning. Earlier COI run completed but produced zero ASVs,
-  an empty FASTA, header-only counts and no published taxonomy; its export
-  log contained an empty-FASTA error despite workflow success. Summaries must
-  distinguish these outcomes rather than equating execution success with ASVs.
-- The old-pipeline counts remain sanity references, not exact acceptance
-  targets. No thresholds or analysis parameters were changed during inspection.
+- Historical run evidence, counts and empty-COI caveats are recorded in the
+  [fixture README](tests/fixtures/small/README.md#historical-m5c-evidence).
 
 ### M5d - Restart and completion records [x]
 - Per-target `.completion.json` stores SHA-256 fingerprints of the raw run,
@@ -311,7 +292,7 @@ verified, and failures stop the run with a clear message.
 
 ## M6 - Multi-target ampliseq execution
 
-[ ]
+[x]
 
 **Goal:** every target listed in configuration runs against the demultiplexed
 samples, with independent outputs and execution state.
@@ -345,7 +326,7 @@ outputs before summary schemas are defined.
   all 24 Python 3.12 tests pass. Existing single-target mocks remain isolated.
 - **Review gate:** developer approves the four target configs and annotations.
 
-### M6b - Verify sequential multi-target execution [ ]
+### M6b - Verify sequential multi-target execution [x]
 - Keep target runs sequential for the local executor, in configured order,
   with separate execution directories and completion records.
 - Extend `CommandRestartTests` to check target order, independent state and
@@ -356,12 +337,19 @@ outputs before summary schemas are defined.
   while resuming the remaining targets.
 - **Review gate:** developer approves orchestration and tests.
 
-### M6c - Validate the four-target fixture [ ]
+### M6c - Validate the four-target fixture [x]
 - Developer runs COI, CytB, ITS2 and P3 and records published outputs,
   per-target exclusions and rerun behaviour.
 - COI is expected to yield no ASVs; compare CytB with M5c. At least one ITS2
   sequence is hoped for, not an acceptance threshold. Agree P3 expectations
   with its configuration; do not tune parameters merely to force success.
+- Four-target run captured after corrected P3 taxonomic levels: only overall
+  summary, Savont feature table and processed/raw SINTAX tables retained.
+  Observed outcomes and historical M5c evidence are in the
+  [fixture README](tests/fixtures/small/README.md#captured-multi-target-outputs).
+  Capture integrity and ID consistency are checked without running analysis.
+- Developer approved the captured fixtures and observed outcomes (2026-11-02);
+  all 26 Python 3.12 tests and fixture checksum checks pass.
 - **Review gate:** developer approves observed outcomes and Savont output
   layouts before M7 summary schemas are defined.
 

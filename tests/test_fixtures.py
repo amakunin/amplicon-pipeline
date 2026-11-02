@@ -78,6 +78,34 @@ class FixtureContractTests(unittest.TestCase):
                         hashlib.file_digest(handle, "sha256").hexdigest(), expected
                     )
 
+    def test_captured_ampliseq_outputs(self) -> None:
+        captured = FIXTURE / "ampliseq"
+        for line in (captured / "checksums.sha256").read_text().splitlines():
+            expected, filename = line.split()
+            with self.subTest(filename=filename):
+                with (captured / filename).open("rb") as handle:
+                    self.assertEqual(
+                        hashlib.file_digest(handle, "sha256").hexdigest(), expected
+                    )
+
+        for target, count in (("COI", 0), ("CytB", 2), ("ITS2", 1), ("P3", 2)):
+            with self.subTest(target=target):
+                results = captured / target
+                features = read_tsv(results / "savont/pooled_feature-table.tsv")
+                database = "coidb" if target == "COI" else "user"
+                taxonomy = results / "sintax" / f"ASV_tax_sintax.{database}"
+                processed = read_tsv(Path(f"{taxonomy}.tsv"))
+                with Path(f"{taxonomy}.raw.tsv").open(newline="") as handle:
+                    raw = list(csv.reader(handle, delimiter="\t"))
+                ids = {row["ASV_ID"] for row in features}
+                self.assertEqual(len(features), count)
+                self.assertEqual(len(ids), count)
+                self.assertEqual(len(processed), count)
+                self.assertEqual(len(raw), count)
+                self.assertEqual({row["ASV_ID"] for row in processed}, ids)
+                self.assertEqual({row[0] for row in raw}, ids)
+                self.assertTrue(all(row["sequence"] for row in processed))
+
     def test_optional_real_fastq_integrity_and_record_count(self) -> None:
         fastq = FIXTURE / "run.fastq.gz"
         if not fastq.exists():

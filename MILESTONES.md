@@ -448,101 +448,93 @@ in M5-M6, with tests on small captured output.
 
 [x]
 
-- Prerequisite for configuration consolidation: replace whole-YAML fingerprints
-  with effective demux settings/command and per-target resolved ampliseq
-  parameters/command. Keep input, resource, executor and output fingerprints.
-- Verify summary-only changes leave upstream fingerprints unchanged, target
-  parameters affect only that target, and relevant settings/resources still
-  invalidate completion. Preserve existing skip, safe-failure and resume rules.
-- Older completion records are incompatible; never rewrite them automatically.
-  Use a fresh output directory for migration validation.
-- All 31 Python 3.12 offline tests pass; syntax and editor diagnostics report
-  no errors in the changed Python files.
+- Fingerprint effective demux settings/command and per-target resolved
+  ampliseq parameters/command, alongside inputs, resources, executor and
+  outputs. Preserve skip, safe-failure and resume behavior; summary-only
+  changes do not invalidate upstream stages, and target changes stay isolated.
+- Older completion records are incompatible and are never rewritten; validate
+  migrations in a fresh output directory. All 31 offline tests and syntax/editor
+  checks passed.
 - **Review gate:** developer approves fingerprint isolation before M8b.
 
 ### M8b - Consolidated configuration
 
 [x]
 
-- Consolidate pipeline YAML into `demux`, `ampliseq.common`,
-  `ampliseq.targets`, `summary.common` and `summary.targets`, retaining shared
-  `threads` and separate Nextflow executor configuration.
-- Target values replace common values by parameter name; no concatenation.
-  Driver-owned `input` and `outdir` win. Keep writing resolved parameters
-  under each run's `ampliseq/<target>/params.yaml`.
-- Update configuration loading, preparation, driver consumers, examples and
-  tests together; remove superseded target YAMLs without changing effective
-  scientific parameters. No QC thresholds added.
-- Migrated example and fixture YAMLs; retained `load_config`'s return signature
-  and existing input-preparation logic. Updated consumers to the nested target
-  registry; old-layout tests replaced with merge/override tests.
-- Developer approved the expanded file-count budget for this migration.
-- Verified exact resolved and generated parameter equivalence against
-  pre-migration snapshots for the example and all four fixture targets.
-  All 31 Python 3.12 offline tests and both fixture checksum manifests pass;
-  syntax, editor diagnostics and whitespace checks pass.
-- Developer completed `results/m8b_test` (2026-11-02). Current configuration,
-  generated parameters, demux/target completion fingerprints and output
-  inventories match. Both summary TSVs are byte-identical to M7b: four
-  target-ASVs and seven assignments; all fields/counts match published inputs.
-  Compared with that run, COI no longer sets `decontam: none` and other targets
-  explicitly set `sintax_cutoff: 0.8`; these match the current configuration.
+- Consolidated configuration sections: `demux`, `ampliseq.common`,
+  `ampliseq.targets`, `summary.common` and `summary.targets`, with shared
+  `threads` and separate Nextflow executor configuration. Target values replace
+  common values by parameter name; driver-owned `input`/`outdir` win. Resolved
+  parameters remain under `ampliseq/<target>/params.yaml`; no QC thresholds
+  were added.
+- Migrated consumers, examples and tests without changing effective scientific
+  parameters. Exact parameter equivalence passed for the example and all four
+  fixture targets; offline tests, fixture checksums, syntax, diagnostics and
+  whitespace checks passed. The M8b integration rerun matched M7b summary TSVs
+  byte-for-byte (four ASVs, seven assignments) and verified current
+  configuration, fingerprints and output inventories.
 - **Review gate:** agree exact interfaces before implementation, then verify
   parameter equivalence and stage-specific invalidation.
 
 ### M8c - Sequence-level QC annotations
 
-[~]
+[x]
 
-- Agreed length rules: COI allows only 640, 643, 646, 649, 652, 655, 658,
-  661, 664, 667, 670 or 673 nt. P3 fixture bounds are 372-380 nt inclusive
-  (narrowed from 350-400 to exercise a failure, not a production recommendation).
-  CytB allows 298, 301, 304, 307, 310, 313 or 316 nt and uses the same
-  six-frame genetic-code-5 check as COI. Defer ITS2 rules for now.
-- COI coding check: examine shifts 0, 1 and 2 on both strands using the
-  invertebrate mitochondrial genetic code (NCBI table 5). Report all stop-free
-  strand/shift combinations; one is expected. Ignore incomplete terminal
-  codons. Mark frames with ambiguous complete codons uncertain and report
-  separately from confirmed stop-free frames. Labels for zero or multiple
-  stop-free frames remain open.
-  A lightweight genetic-code dependency is permitted if needed; not Biopython.
-- Agree ASV length bounds per target, coding checks for COI/CytB, genetic codes,
-  orientation/frame handling, partial codons and ambiguous bases. Do not reuse
-  read-filtering length limits as ASV acceptance bounds without approval.
-- Agree configuration keys under `summary.common`/`summary.targets`, annotation
-  columns and output paths before implementation. Preserve raw M7 tables.
-- Annotate each target-ASV once, retaining measurements and all applicable
-  reasons without filtering. Test approved boundaries and coding examples;
-  propose a budget-sized implementation step after definitions are agreed.
-- **Review gate:** developer approves definitions, then annotations and tests.
-- Approved standalone `scripts/qc_asvs.py` (`--asvs`, `--config-dir`,
-  `--output-dir`) and separate `asv_qc.tsv`. Raw M7 tables stay unchanged;
-  driver wiring follows review. No new dependency.
-- Configured approved length rules and `genetic_code: 5`; omitted checks are
-  not checked. Report all confirmed stop-free and uncertain frames separately,
-  with descriptive length/coding statuses rather than an acceptance flag.
-- Length failures distinguish `too_short`, `too_long` and `unexpected_length`
-  (within bounds but absent from the discrete allowed list).
-- All 35 Python 3.12 offline tests pass, including four sequence-QC tests:
-  six frames, partial/ambiguous codons, discrete/range length boundaries,
-  configuration precedence and unchanged raw fixture tables. P3 ASV
-  `0a4b74ea4eddec52` (371 nt) is `too_short`; `83ea72fd937a3d48` (373 nt)
-  passes. ITS2 remains unchecked and the fixture has no COI ASV.
-  The 307-nt CytB ASV passes length QC and has two confirmed stop-free frames
-  (`+0,+1`), reported as `multiple_stop_free_frames`, not an acceptance decision.
-  Fixture checksums, syntax, editor diagnostics and whitespace checks pass.
+- `scripts/qc_asvs.py` annotates each target-ASV to `asv_qc.tsv`; raw M7 tables
+  are unchanged and driver wiring is deferred. Configured checks only: COI
+  lengths 640-673 nt in 3-nt steps; CytB lengths 298-316 nt in 3-nt steps
+  and both use genetic code 5; P3 fixture-only range 372-380 nt; ITS2 unchecked.
+- Coding evidence checks all six frames (both strands, shifts 0-2), ignores an
+  incomplete terminal codon, and reports confirmed stop-free and uncertain
+  frames separately. Length statuses are descriptive (`too_short`,
+  `too_long`, `unexpected_length`, `pass`, `not_checked`); zero/multiple
+  stop-free frames are not acceptance decisions.
+- All 35 offline tests, fixture checksums, syntax, diagnostics and whitespace
+  checks passed. Boundary/codon cases are covered; the P3 fixture has one
+  371-nt failure and one 373-nt pass. Its 307-nt CytB ASV has two confirmed
+  stop-free frames (`+0,+1`); the fixture has no COI ASV.
 
 ### M8d - Assignment-level QC annotations
 
 [ ]
 
-- Agree contamination scope/comparator, minimum reads, primary ties,
-  disqualifying labels and read-count-ratio thresholds and boundary semantics.
-- Apply the agreed M8 labelling order to sample-target-ASV assignments, using
-  sequence annotations; retain original evidence, every reason and fixed
-  comparator values. No row deletion.
-- **Review gate:** approve configuration/schema and implementation scope first,
-  then verify labels and order-independent comparisons on small examples.
+- **Decision gate - resolve before coding:**
+  - Contamination is evaluated per target-ASV across samples within the run;
+    sequence-QC-failing ASVs contribute to the comparison. In
+    `summary.common`, set `min_contam_source_reads: 10000` and
+    `min_contam_read_ratio: 100` for all targets; use these as CLI defaults too.
+  - If the maximum sample count is strictly above `min_contam_source_reads`,
+    label every sample tied at that maximum `contam_source`. Label other
+    samples strictly above that read threshold `possible_contam_source`.
+    Label assignments in other samples `contam_target` when their count is
+    strictly below `contam_source_reads / min_contam_read_ratio`.
+    Possible sources may also be targets. If no count exceeds the source
+    threshold, there is no source or target label.
+  - Still agree the separate assignment minimum-read threshold, the
+    secondary-to-primary read-count ratio and its boundary, disqualifying
+    labels, and primary tie handling.
+  - Approve the `summary.common`/`summary.targets` keys, assignment-QC columns,
+    output paths/log filename and standalone interface. The stdout and
+    persisted per-ASV report lists only ASVs with affected samples: target,
+    ASV ID, source reads, target cutoff and affected-sample count.
+    Do not infer other values from read filtering or
+    fixture counts.
+- **Implementation plan:** join `assignments.tsv` to `asv_qc.tsv` by
+  `(target, asv_id)`. Preserve every assignment, raw count, sequence annotation,
+  comparator value and applicable reason; never delete rows. Calculate
+  cross-sample contamination labels once, then apply sequence-QC,
+  contamination and minimum-read labels. Within each sample-target, select the
+  highest-count assignment without disqualifying labels as the fixed primary;
+  apply the separately approved ratio rule to secondary assignments against
+  it. Being secondary alone is not disqualifying; if none qualify, there is no
+  primary.
+- After the decision gate, propose a step within the milestone budget for the
+  standalone annotation and focused tests. Cover threshold boundaries, ties,
+  no-primary cases, sequence-QC failures in contamination comparisons and
+  order-independent results. Wire the driver only after reviewing the
+  annotations and tests.
+- **Review gate:** developer approves definitions, config/schema and
+  implementation scope before coding, then reviews annotations and tests.
 
 ### M8e - Sample-target interpretation
 

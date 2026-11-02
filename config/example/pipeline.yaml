@@ -35,7 +35,9 @@ ampliseq:
 
 # Sequence QC only; omitted checks are not performed.
 summary:
-  common: {}
+  common:
+    min_contam_source_reads: 10000
+    min_contam_read_ratio: 100
   targets:
     COI:
       allowed_lengths: [640, 643, 646, 649, 652, 655, 658, 661, 664, 667, 670, 673]

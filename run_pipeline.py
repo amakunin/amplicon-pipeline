@@ -3,6 +3,8 @@
 
 import argparse
 import csv
+import hashlib
+import json
 import re
 import shlex
 import subprocess
@@ -154,11 +156,65 @@ def ampliseq_command(
 ) -> list[str]:
     return [
         "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
+        "-resume",
         "-profile", profile,
         "-c", str(config_dir.resolve() / "ampliseq.config"),
         "-c", str(target_dir / "resources.config"),
         "-params-file", str(target_dir / "params.yaml"),
     ]
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def target_fingerprints(
+    args: argparse.Namespace,
+    config: dict[str, Any],
+    target: str,
+    target_dir: Path,
+) -> dict[str, str]:
+    samplesheet = target_dir / "samplesheet.tsv"
+    paths = [
+        args.run_fastq_gz,
+        args.manifest_tsv,
+        args.config_dir / "pipeline.yaml",
+        config["targets"][target],
+        args.config_dir / "ampliseq.config",
+        samplesheet,
+        target_dir / "excluded_samples.tsv",
+        target_dir / "params.yaml",
+        target_dir / "resources.config",
+    ]
+    parameters = yaml.safe_load((target_dir / "params.yaml").read_text())
+    for key in ("sintax_ref", "sintax_ref_tax_custom"):
+        value = parameters.get(key)
+        if value and value != "coidb":
+            paths.append(Path(value))
+    with samplesheet.open(newline="") as handle:
+        paths.extend(
+            Path(row["fastq_1"])
+            for row in csv.DictReader(handle, delimiter="\t")
+        )
+    fingerprints = {
+        str(path.resolve()): sha256_file(path)
+        for path in sorted(set(paths))
+    }
+    fingerprints["runtime:profile"] = hashlib.sha256(
+        args.profile.encode()
+    ).hexdigest()
+    return fingerprints
+
+
+def write_completion_record(path: Path, fingerprints: dict[str, str]) -> None:
+    record = {"fingerprints": fingerprints, "status": "complete"}
+    temporary_path = path.with_name(f"{path.name}.tmp")
+    temporary_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    temporary_path.replace(path)
 
 
 def run_ampliseq(
@@ -181,11 +237,21 @@ def run_ampliseq(
         )
         target_dir = ampliseq_dir / target
         write_resource_config(target_dir, config["threads"])
+        fingerprints = target_fingerprints(args, config, target, target_dir)
+        record_path = target_dir / ".completion.json"
+        expected_record = {"fingerprints": fingerprints, "status": "complete"}
+        if (
+            record_path.exists()
+            and json.loads(record_path.read_text()) == expected_record
+        ):
+            print(f"Skipping ampliseq for {target}: completion record matches")
+            continue
         subprocess.run(
             ampliseq_command(args.config_dir, target_dir, args.profile),
             cwd=target_dir,
             check=True,
         )
+        write_completion_record(record_path, fingerprints)
 
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:

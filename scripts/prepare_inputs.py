@@ -45,7 +45,7 @@ def main() -> None:
             included.append((sample["sample_id"], reads))
 
     target_dir = args.output_dir.resolve() / args.target
-    target_dir.mkdir(parents=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     with (target_dir / "samplesheet.tsv").open("w", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t")

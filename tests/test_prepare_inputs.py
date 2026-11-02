@@ -68,6 +68,8 @@ class PrepareInputsTests(unittest.TestCase):
             result = run_prepare(demux, Path(temporary) / "ampliseq")
 
             self.assertEqual(result.returncode, 0, result.stderr)
+            rerun = run_prepare(demux, Path(temporary) / "ampliseq")
+            self.assertEqual(rerun.returncode, 0, rerun.stderr)
             target_dir = Path(temporary) / "ampliseq/CytB"
             self.assertEqual(
                 (target_dir / "samplesheet.tsv").read_text(),

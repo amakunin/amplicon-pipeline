@@ -115,6 +115,7 @@ output_dir/
     excluded_samples.tsv
     params.yaml
     resources.config
+    .completion.json         # input/config fingerprints for safe target skip
     .nextflow/              # retained cache
     .nextflow.log
     work/                   # retained task files
@@ -139,6 +140,9 @@ Counts, sequences and taxonomy share ASV IDs. These are observed pooled-mode,
 custom-reference filenames, not yet a contract for other inference/database modes.
 Future sample summaries must include every manifest sample, including those
 without reads; input preparation currently records these in `excluded_samples.tsv`.
+For each target, the completion record skips ampliseq only when its input,
+configuration and selected profile fingerprints match; otherwise Nextflow runs
+with `-resume`. Demultiplexing rerun behavior is handled separately.
 
 ## Tests
 

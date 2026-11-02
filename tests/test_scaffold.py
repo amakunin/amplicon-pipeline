@@ -1,10 +1,12 @@
 """Smoke tests for the scaffold, not for analysis behaviour."""
 
+import gzip
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -19,6 +21,7 @@ from run_pipeline import (
     demux_command,
     load_config,
     read_manifest,
+    run_ampliseq,
     write_resource_config,
 )
 
@@ -161,12 +164,103 @@ class ScaffoldTests(unittest.TestCase):
                 ampliseq_command(FIXTURE / "config", target_dir, "local"),
                 [
                     "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
+                    "-resume",
                     "-profile", "local",
                     "-c", str(FIXTURE / "config/ampliseq.config"),
                     "-c", str(target_dir / "resources.config"),
                     "-params-file", str(target_dir / "params.yaml"),
                 ],
             )
+
+    def test_ampliseq_completion_record_and_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "output"
+            demux_dir = output_dir / "demux"
+            demux_dir.mkdir(parents=True)
+            with gzip.open(
+                demux_dir / "ont_barcode10_barcode89.fastq.gz", "wb"
+            ) as handle:
+                handle.write(b"@r\nACGT\n+\nIIII\n")
+            run_fastq = Path(temporary) / "run.fastq.gz"
+            run_fastq.write_bytes(b"raw run")
+            config, _ = load_config(FIXTURE / "config")
+            target_dir = output_dir / "ampliseq/CytB"
+            reference = Path(temporary) / "reference.fasta"
+            reference.write_text(">ref\nACGT\n")
+            args = SimpleNamespace(
+                config_dir=FIXTURE / "config",
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=output_dir,
+                profile="local",
+                run_fastq_gz=run_fastq,
+            )
+            nextflow_commands = []
+            fail_nextflow = [True]
+
+            def fake_run(command, **kwargs):
+                if "prepare_inputs.py" in command[1]:
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    reads = demux_dir / "ont_barcode10_barcode89.fastq.gz"
+                    (target_dir / "samplesheet.tsv").write_text(
+                        f"sample\tfastq_1\nsample\t{reads}\n"
+                    )
+                    (target_dir / "excluded_samples.tsv").write_text(
+                        "sample_id\treason\n"
+                    )
+                    (target_dir / "params.yaml").write_text(
+                        run_pipeline.yaml.safe_dump(
+                            {
+                                "input": str(target_dir / "samplesheet.tsv"),
+                                "outdir": str(target_dir / "results"),
+                                "sintax_ref_tax_custom": str(reference),
+                            }
+                        )
+                    )
+                    return subprocess.CompletedProcess(command, 0)
+                if command[0] != "nextflow":
+                    raise AssertionError(f"Unexpected command: {command}")
+                nextflow_commands.append(command)
+                if fail_nextflow[0]:
+                    raise subprocess.CalledProcessError(1, command)
+                results_dir = Path(kwargs["cwd"]) / "results"
+                results_dir.mkdir(exist_ok=True)
+                (results_dir / "overall_summary.tsv").write_text("result\n")
+                return subprocess.CompletedProcess(command, 0)
+
+            record_path = output_dir / "ampliseq/CytB/.completion.json"
+            with mock.patch.object(
+                run_pipeline.subprocess, "run", side_effect=fake_run
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    run_ampliseq(config, args)
+                self.assertFalse(record_path.exists())
+
+                fail_nextflow[0] = False
+                run_ampliseq(config, args)
+                self.assertTrue(record_path.exists())
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 2)
+
+                args.profile = "lsf"
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 3)
+
+                config["threads"] += 1
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 4)
+
+                with gzip.open(
+                    demux_dir / "ont_barcode10_barcode89.fastq.gz", "wb"
+                ) as handle:
+                    handle.write(b"@r2\nTGCA\n+\nIIII\n")
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 5)
+
+                reference.write_text(">ref\nTGCA\n")
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 6)
+
+            self.assertTrue(all("-resume" in command for command in nextflow_commands))
 
     def test_check_nextflow_requires_version_26(self) -> None:
         def completed(version: str) -> subprocess.CompletedProcess:
@@ -191,16 +285,26 @@ class ScaffoldTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             argv = [
                 "run_pipeline.py",
-                "run.fastq.gz",
+                str(Path(temporary) / "run.fastq.gz"),
                 str(FIXTURE / "manifest.tsv"),
                 str(FIXTURE / "config"),
                 str(Path(temporary) / "out"),
             ]
+            Path(argv[1]).write_text("raw run")
             target_dir = Path(temporary) / "out/ampliseq/CytB"
 
             def fake_run(command, **kwargs):
                 if "prepare_inputs.py" in command[1]:
-                    target_dir.mkdir(parents=True)
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    reads = Path(temporary) / "input.fastq.gz"
+                    reads.write_bytes(b"reads")
+                    (target_dir / "samplesheet.tsv").write_text(
+                        f"sample\tfastq_1\nsample\t{reads}\n"
+                    )
+                    (target_dir / "excluded_samples.tsv").write_text(
+                        "sample_id\treason\n"
+                    )
+                    (target_dir / "params.yaml").write_text("input: samplesheet.tsv\n")
 
             with mock.patch.object(sys, "argv", argv), mock.patch.object(
                 run_pipeline, "check_nextflow"

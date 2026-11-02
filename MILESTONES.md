@@ -282,9 +282,18 @@ verified, and failures stop the run with a clear message.
   targets. No thresholds or analysis parameters were changed during inspection.
 
 ### M5d - Restart and completion records [ ]
-- Completion record per target that stores the input and config checksums.
-- Rerun after an interrupt and after a config change; nothing is deleted
-  automatically.
+- Per-target `.completion.json` stores SHA-256 fingerprints of the raw run,
+  manifest, target/config files, configured reference resources and generated
+  ampliseq inputs, plus the selected Nextflow profile.
+- A matching record skips the target; a missing or stale record runs Nextflow
+  with `-resume`. The record is replaced only after success, and no files are
+  deleted automatically.
+- `prepare_inputs.py` can rewrite its generated inputs in an existing target
+  directory.
+- Demux contract for M5e: use a separate completion record with fingerprints
+  for the run, manifest, demux configuration and barcode resources, plus a
+  record of generated outputs. Skip only when the record and outputs match;
+  for mismatches, fail without deleting existing outputs.
 - **Review gate:** developer approves rerun behaviour.
 
 ### M5e - Review demux resume logic [ ]

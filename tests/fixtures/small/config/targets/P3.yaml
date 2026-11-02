@@ -1,17 +1,26 @@
-input: "samplesheet.tsv"
+# Input: nanopore reads; the driver supplies input and outdir.
+sequencing_type: "nanopore"
+
+# Primers: forward and reverse amplicon sequences.
 primer_fwd: "CAACACCATCCAATTTGATTG"
 primer_rev: "GGAGGTTACGTCCATACAG"
-outdir: "./results_p3"
-ignore_empty_input_files: True
-ignore_failed_filtering: True
-ignore_failed_trimming: True
-sequencing_type: "nanopore"
+
+# ASV: pooled Savont inference and read-length limits.
 asv_calling: "savont"
 sample_inference: "pooled"
 savont_options: "--min-read-length 300 --max-read-length 500"
-skip_dada_taxonomy: True
-skip_barrnap: True
+
+# SINTAX: custom reference and taxonomy rank order.
 sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
 sintax_assign_taxlevels: "Domain,Phylum,Class,Order,Family,Genus,Species,Strain"
-skip_phyloseq: True
-skip_tse: True
+
+# Skips: disable unused analysis and reporting steps.
+skip_dada_taxonomy: true
+skip_barrnap: true
+skip_phyloseq: true
+skip_tse: true
+
+# Ignores: continue past empty inputs and failed filtering/trimming.
+ignore_empty_input_files: true
+ignore_failed_filtering: true
+ignore_failed_trimming: true

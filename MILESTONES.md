@@ -339,6 +339,10 @@ outputs before summary schemas are defined.
   `sequencing_type`.
 - Preserve scientific parameter values; remove ITS2's explicit `input` and
   duplicate skip keys.
+- Implementation ready for review: all five target YAMLs use the six sections;
+  P3's driver-owned `input`/`outdir` removed and four fixture targets enabled.
+  Parsed parameter values preserved; duplicate-key/section-order checks and
+  all 24 Python 3.12 tests pass. Existing single-target mocks remain isolated.
 - **Review gate:** developer approves the four target configs and annotations.
 
 ### M6b - Verify sequential multi-target execution [ ]

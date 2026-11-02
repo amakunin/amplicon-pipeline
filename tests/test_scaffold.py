@@ -158,6 +158,7 @@ class CommandRestartTests(unittest.TestCase):
             run_fastq = Path(temporary) / "run.fastq.gz"
             run_fastq.write_bytes(b"raw run")
             config, _ = load_config(FIXTURE / "config")
+            config["targets"] = {"CytB": config["targets"]["CytB"]}
             target_dir = output_dir / "ampliseq/CytB"
             reference = Path(temporary) / "reference.fasta"
             reference.write_text(">ref\nACGT\n")
@@ -383,6 +384,8 @@ class CliTests(unittest.TestCase):
             ]
             Path(argv[1]).write_text("raw run")
             target_dir = Path(temporary) / "out/ampliseq/CytB"
+            config, targets = load_config(FIXTURE / "config")
+            config["targets"] = {"CytB": config["targets"]["CytB"]}
 
             def fake_run(command, **kwargs):
                 if "demux_" in command[1]:
@@ -412,6 +415,8 @@ class CliTests(unittest.TestCase):
 
             with mock.patch.object(sys, "argv", argv), mock.patch.object(
                 run_pipeline, "check_nextflow"
+            ), mock.patch.object(
+                run_pipeline, "load_config", return_value=(config, targets)
             ), mock.patch.object(
                 run_pipeline.subprocess, "run", side_effect=fake_run
             ) as run:
@@ -452,7 +457,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(
                 plan,
                 "Method: hybrid\n"
-                "Targets: CytB\n"
+                "Targets: COI, CytB, ITS2, P3\n"
                 "Samples:\n"
                 "  ANLCx_002_A12: ont_barcode=10, rear_barcode=89\n"
                 "  BFHK_023_H8: ont_barcode=16, rear_barcode=64\n"

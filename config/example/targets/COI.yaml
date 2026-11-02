@@ -1,25 +1,29 @@
-# Native nf-core/ampliseq 3.0.0 parameters.
-# The driver will generate input/outdir; do not set them here.
+# Input: nanopore reads; the driver supplies input and outdir.
+sequencing_type: "nanopore"
+
+# Primers: forward and reverse amplicon sequences.
 primer_fwd: "RKTCAACMAATCATAAAGATATTGG"
 primer_rev: "TAAACTTCWGGRTGWCCAAAAAATCA"
-sequencing_type: "nanopore"
+
+# ASV: pooled Savont inference and read-length limits.
 asv_calling: "savont"
 sample_inference: "pooled"
 savont_options: "--min-read-length 600 --max-read-length 900"
 decontam: "none"
 
-# Built-in database; alternatively use sintax_ref_tax_custom and sintax_assign_taxlevels.
+# SINTAX: built-in taxonomy database.
 sintax_ref_taxonomy: "coidb"
 
-# skipping steps for this configuration
+# Skips: disable unused analysis and reporting steps.
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
 skip_qiime: true
-skip_fastqc: True
-skip_parquet_summary: True
-# Preserve prototype behaviour; downstream summaries must report exclusions.
+skip_fastqc: true
+skip_parquet_summary: true
+
+# Ignores: continue past empty inputs and failed filtering/trimming.
 ignore_empty_input_files: true
 ignore_failed_filtering: true
 ignore_failed_trimming: true

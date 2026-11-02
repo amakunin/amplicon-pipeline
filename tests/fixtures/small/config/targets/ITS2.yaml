@@ -1,23 +1,29 @@
-input: "samplesheet.tsv"
+# Input: nanopore reads; the driver supplies input and outdir.
+sequencing_type: "nanopore"
+
+# Primers: forward and reverse amplicon sequences.
 primer_fwd: "TGTGAACTGCAGGACACAT"
 primer_rev: "TATGCTTAAATTCAGGGGGT"
 
-ignore_empty_input_files: True
-ignore_failed_filtering: True
-ignore_failed_trimming: True
-sequencing_type: "nanopore"
+# ASV: pooled Savont inference and read-length limits.
 asv_calling: "savont"
 sample_inference: "pooled"
 savont_options: "--min-read-length 300 --max-read-length 900"
-skip_dada_taxonomy: True
-skip_barrnap: True
+
+# SINTAX: custom reference and taxonomy rank order.
 sintax_ref_tax_custom: "../../../../../culicidae_ref/ITS2_PREFILTER_ARTH_SINTAX.fasta"
 sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species"
 
+# Skips: disable unused analysis and reporting steps.
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
 skip_tse: true
 skip_qiime: true
-skip_fastqc: True
-skip_parquet_summary: True
+skip_fastqc: true
+skip_parquet_summary: true
+
+# Ignores: continue past empty inputs and failed filtering/trimming.
+ignore_empty_input_files: true
+ignore_failed_filtering: true
+ignore_failed_trimming: true

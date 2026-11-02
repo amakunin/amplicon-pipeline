@@ -61,9 +61,9 @@ class PrepareInputsTests(unittest.TestCase):
             demux = Path(temporary) / "demux"
             demux.mkdir()
             # ANLCx_002_A12 has reads, BFHK_023_H8 is empty, the rest are absent
-            with gzip.open(demux / "ont_barcode10_barcode89.fastq.gz", "wb") as handle:
+            with gzip.open(demux / "barcode02_barcode89.fastq.gz", "wb") as handle:
                 handle.write(RECORD)
-            gzip.open(demux / "ont_barcode16_barcode64.fastq.gz", "wb").close()
+            gzip.open(demux / "barcode08_barcode64.fastq.gz", "wb").close()
 
             result = run_prepare(demux, Path(temporary) / "ampliseq")
 
@@ -74,7 +74,7 @@ class PrepareInputsTests(unittest.TestCase):
             self.assertEqual(
                 (target_dir / "samplesheet.tsv").read_text(),
                 "sample\tfastq_1\n"
-                f"ANLCx_002_A12\t{demux.resolve()}/ont_barcode10_barcode89.fastq.gz\n",
+                f"ANLCx_002_A12\t{demux.resolve()}/barcode02_barcode89.fastq.gz\n",
             )
             self.assertEqual(
                 (target_dir / "excluded_samples.tsv").read_text(),

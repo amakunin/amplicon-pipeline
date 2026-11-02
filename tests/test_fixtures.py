@@ -88,7 +88,7 @@ class FixtureContractTests(unittest.TestCase):
                         hashlib.file_digest(handle, "sha256").hexdigest(), expected
                     )
 
-        for target, count in (("COI", 0), ("CytB", 2), ("ITS2", 1), ("P3", 2)):
+        for target, count in (("COI", 0), ("CytB", 1), ("ITS2", 1), ("P3", 2)):
             with self.subTest(target=target):
                 results = captured / target
                 features = read_tsv(results / "savont/pooled_feature-table.tsv")

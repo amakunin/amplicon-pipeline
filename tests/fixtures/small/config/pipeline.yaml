@@ -1,6 +1,5 @@
 # Fixture-specific site settings.
 threads: 4  # Used by demultiplexing and as the ampliseq CPU limit.
-
 targets:
   COI: targets/COI.yaml
   CytB: targets/CytB.yaml
@@ -8,8 +7,8 @@ targets:
   P3: targets/P3.yaml
 
 demux:
-  method: hybrid
+  method: illumina
   dorado_exec: /software/sciops/external/ont-dorado/0.8.2/bin/dorado
   barcode_dir: ../../../../assets/barcodes
-  ont_barcode_mapping: ../../../../assets/barcodes/ONT_nb24_barcode.tsv
+  front_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_F.tsv
   reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv

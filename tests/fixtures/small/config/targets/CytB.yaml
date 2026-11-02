@@ -8,7 +8,7 @@ primer_rev: "CCTCAGAATGATATTTGTCCTCA"
 # ASV: pooled Savont inference and read-length limits.
 asv_calling: "savont"
 sample_inference: "pooled"
-savont_options: "--min-read-length 250 --max-read-length 500"
+savont_options: "--min-read-length 250 --max-read-length 500 --single-strand"
 
 # SINTAX: custom reference and taxonomy rank order.
 sintax_ref_tax_custom: "../../../../../culicidae_ref/MIDORI2_UNIQ_NUC_GB272_Cytb_SINTAX.fasta"

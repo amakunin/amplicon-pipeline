@@ -8,7 +8,7 @@ primer_rev: "GGAGGTTACGTCCATACAG"
 # ASV: pooled Savont inference and read-length limits.
 asv_calling: "savont"
 sample_inference: "pooled"
-savont_options: "--min-read-length 300 --max-read-length 500"
+savont_options: "--min-read-length 300 --max-read-length 500 --single-strand --min-cluster-size 4"
 
 # SINTAX: custom reference and taxonomy rank order.
 sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"

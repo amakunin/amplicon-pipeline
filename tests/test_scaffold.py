@@ -30,7 +30,7 @@ from run_pipeline import (
 class ConfigManifestTests(unittest.TestCase):
     def test_load_fixture_config(self) -> None:
         config, targets = load_config(FIXTURE / "config")
-        self.assertEqual(config["demux"]["method"], "hybrid")
+        self.assertEqual(config["demux"]["method"], "illumina")
         self.assertEqual(
             config["demux"]["reverse_barcode_mapping"],
             ROOT / "assets/barcodes/Sanger_custom_barcode_R.tsv",
@@ -85,9 +85,17 @@ class ConfigManifestTests(unittest.TestCase):
         self.assertEqual(len(samples), 5)
         self.assertEqual(
             samples[0]["barcode_indices"],
-            {"ont_barcode": "10", "rear_barcode": "89"},
+            {"front_barcode": "02", "rear_barcode": "89"},
         )
         self.assertEqual(samples[0]["well_id"], "A12")
+        config["demux"]["method"] = "hybrid"
+        config["demux"]["ont_barcode_mapping"] = (
+            ROOT / "assets/barcodes/ONT_nb24_barcode.tsv"
+        )
+        self.assertEqual(
+            read_manifest(FIXTURE / "manifest.tsv", config)[0]["barcode_indices"],
+            {"ont_barcode": "10", "rear_barcode": "89"},
+        )
 
     def test_read_manifest_reports_unknown_barcode_with_sample(self) -> None:
         config, _ = load_config(FIXTURE / "config")
@@ -108,7 +116,7 @@ class CommandRestartTests(unittest.TestCase):
     def test_demux_command(self) -> None:
         config, _ = load_config(FIXTURE / "config")
         command = demux_command(config, Path("run.fastq.gz"), Path("out"))
-        self.assertEqual(command[:2], ["bash", str(ROOT / "scripts/demux_hybrid.sh")])
+        self.assertEqual(command[:2], ["bash", str(ROOT / "scripts/demux_illumina.sh")])
         self.assertEqual(
             command[2:],
             [
@@ -120,10 +128,10 @@ class CommandRestartTests(unittest.TestCase):
             ],
         )
 
-        config["demux"]["method"] = "illumina"
+        config["demux"]["method"] = "hybrid"
         config["demux"]["dorado_exec"] = None
         command = demux_command(config, Path("run.fastq.gz"), Path("out"))
-        self.assertTrue(command[1].endswith("scripts/demux_illumina.sh"))
+        self.assertTrue(command[1].endswith("scripts/demux_hybrid.sh"))
         self.assertNotIn("--dorado", command)
 
     def test_ampliseq_command_and_resource_config(self) -> None:
@@ -219,7 +227,7 @@ class CommandRestartTests(unittest.TestCase):
             demux_dir = output_dir / "demux"
             demux_dir.mkdir(parents=True)
             with gzip.open(
-                demux_dir / "ont_barcode10_barcode89.fastq.gz", "wb"
+                demux_dir / "barcode02_barcode89.fastq.gz", "wb"
             ) as handle:
                 handle.write(b"@r\nACGT\n+\nIIII\n")
             run_fastq = Path(temporary) / "run.fastq.gz"
@@ -242,7 +250,7 @@ class CommandRestartTests(unittest.TestCase):
             def fake_run(command, **kwargs):
                 if "prepare_inputs.py" in command[1]:
                     target_dir.mkdir(parents=True, exist_ok=True)
-                    reads = demux_dir / "ont_barcode10_barcode89.fastq.gz"
+                    reads = demux_dir / "barcode02_barcode89.fastq.gz"
                     (target_dir / "samplesheet.tsv").write_text(
                         f"sample\tfastq_1\nsample\t{reads}\n"
                     )
@@ -296,7 +304,7 @@ class CommandRestartTests(unittest.TestCase):
                 self.assertEqual(len(nextflow_commands), 5)
 
                 with gzip.open(
-                    demux_dir / "ont_barcode10_barcode89.fastq.gz", "wb"
+                    demux_dir / "barcode02_barcode89.fastq.gz", "wb"
                 ) as handle:
                     handle.write(b"@r2\nTGCA\n+\nIIII\n")
                 run_ampliseq(config, args)
@@ -492,7 +500,7 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(raised.exception.code, 1)
             commands = [call.args[0] for call in run.call_args_list]
-            self.assertIn("demux_hybrid.sh", commands[0][1])
+            self.assertIn("demux_illumina.sh", commands[0][1])
             self.assertIn("prepare_inputs.py", commands[1][1])
             self.assertEqual(commands[2][:3], ["nextflow", "run", "nf-core/ampliseq"])
             self.assertEqual(run.call_args_list[2].kwargs["cwd"], target_dir)
@@ -519,18 +527,18 @@ class CliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             plan, commands = result.stdout.split("Demux command: ", 1)
-            self.assertIn("demux_hybrid.sh", commands)
+            self.assertIn("demux_illumina.sh", commands)
             self.assertIn("Ampliseq command (CytB): nextflow run", commands)
             self.assertEqual(
                 plan,
-                "Method: hybrid\n"
+                "Method: illumina\n"
                 "Targets: COI, CytB, ITS2, P3\n"
                 "Samples:\n"
-                "  ANLCx_002_A12: ont_barcode=10, rear_barcode=89\n"
-                "  BFHK_023_H8: ont_barcode=16, rear_barcode=64\n"
-                "  BFHK_023_A2: ont_barcode=16, rear_barcode=09\n"
-                "  ANLCx_001_A1: ont_barcode=09, rear_barcode=01\n"
-                "  ANLCx_001_B1: ont_barcode=09, rear_barcode=02\n",
+                "  ANLCx_002_A12: front_barcode=02, rear_barcode=89\n"
+                "  BFHK_023_H8: front_barcode=08, rear_barcode=64\n"
+                "  BFHK_023_A2: front_barcode=08, rear_barcode=09\n"
+                "  ANLCx_001_A1: front_barcode=01, rear_barcode=01\n"
+                "  ANLCx_001_B1: front_barcode=01, rear_barcode=02\n",
             )
             self.assertEqual(result.stderr, "")
             self.assertEqual(list(directory.iterdir()), [])

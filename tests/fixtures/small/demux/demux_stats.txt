@@ -1,0 +1,7 @@
+barcode02_barcode64	1
+barcode02_barcode89	132
+barcode02_unclassified	3
+barcode08_barcode09	342
+barcode08_barcode64	244
+barcode08_unclassified	40
+unclassified	169

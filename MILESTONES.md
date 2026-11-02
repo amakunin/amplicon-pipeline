@@ -350,6 +350,10 @@ outputs before summary schemas are defined.
   Capture integrity and ID consistency are checked without running analysis.
 - Developer approved the captured fixtures and observed outcomes (2026-11-02);
   all 26 Python 3.12 tests and fixture checksum checks pass.
+- Primary capture replaced with the approved Illumina run `results/m7a_test`,
+  including demux statistics, to cover partial/unexpected barcode assignments
+  and low-confidence raw taxonomy. Historical hybrid evidence remains in the
+  fixture README; fixture-specific Savont settings are investigated in M11.
 - **Review gate:** developer approves observed outcomes and Savont output
   layouts before M7 summary schemas are defined.
 
@@ -382,7 +386,55 @@ in M5-M6, with tests on small captured output.
 
 **Review gate:** developer agrees the QC definitions and denominators.
 
-## M9 - Summary plots
+## M9 - Read-count accounting
+
+[ ]
+
+**Goal:** a hierarchical read-flow report from the raw run through barcode
+assignment, sample preprocessing, target inference and M8 acceptance decisions.
+Keep this separate from ASV and sample summaries, in a dedicated script.
+
+**Tasks**
+- Aggregate `demux/demux_stats.txt`, per-target `overall_summary.tsv`, Savont
+  feature counts and downstream accepted assignments. Agree the script
+  interface and output schemas before implementation.
+- Represent branches explicitly: run -> first barcode -> second barcode or
+  unmatched -> manifest sample -> preprocessing -> target -> Savont ->
+  accepted assignments. Preserve barcode-level counts without sample matches.
+- Distinguish unmatched first barcodes, matched first barcodes with unmatched
+  second barcodes, unexpected first barcodes, unexpected complete pairs and
+  expected complete pairs. Evaluate second-barcode expectations within their
+  first-barcode context; individually expected barcodes can form an unexpected
+  pair. Use expected/unexpected, not correct/misclassified: manifest membership
+  does not establish biological origin.
+- Reconstruct first-barcode totals from their descendants. Compare the
+  demux-reported total with an independent raw-input read count; do not assume
+  conservation. Reconcile adjacent stages as well as counts across targets.
+- Record `chopper_input`, `chopper_output` and `cutadapt_total_processed` once
+  per sample when all reporting targets agree. Warn on disagreements and
+  retain target-specific observations; never silently choose one target.
+  Preserve missing values and `NA` separately from zero.
+- Keep primer-selection, Savont and accepted-assignment counts target-specific.
+  Targets receive the same sample reads: do not sum shared preprocessing counts
+  across targets or assume target branches partition the reads.
+- Include read counts before and after M8 filtering of spurious sample-level
+  ASV assignments. Do not introduce acceptance thresholds in this milestone.
+- Test expected/unexpected pairs, partial classification, missing values and
+  reconciliation warnings using small fixtures approved before capture.
+
+**Observed planning evidence:** the Illumina run in `results/m7a_test`
+(2026-11-02) reports 931 demux reads: 169 first-barcode unmatched, 43
+second-barcode unmatched, 1 unexpected complete pair and 718 expected-pair
+reads. `barcode02_barcode64` is unexpected despite both barcodes occurring in
+the manifest. `barcode08_barcode64` has 244 demux reads, while all target
+summaries report 234 Chopper input reads for `BFHK_023_H8`; investigate rather
+than normalize away this discrepancy. These observations are not thresholds.
+
+**Review gate:** developer approves the hierarchy, output schemas, denominators,
+missing-value handling and reconciliation/warning rules before implementation,
+then reviews the fixture read-flow report.
+
+## M10 - Summary plots
 
 [ ]
 
@@ -392,7 +444,40 @@ in M5-M6, with tests on small captured output.
 
 **Review gate:** developer reviews the plots on real output.
 
-## M10 - Full-scale validation
+## M11 - Pipeline parameter investigation
+
+[ ]
+
+**Goal:** investigate parameter sensitivity on small runs before full-scale
+validation; distinguish changes in read recovery from changes in ASV inference.
+
+**Tasks**
+- Compare hybrid and Illumina demultiplexing, Savont strand mode and minimum
+  cluster size using controlled comparisons rather than changing them together.
+  The Illumina fixture uses `--single-strand` for all targets and
+  `--min-cluster-size 4` for ITS2/P3; these are not established production defaults.
+- Investigate ITS2 sequence differences, per-sample supporting reads and
+  taxonomy confidence. Hybrid ASV `4851853f76e4a41b` (466 nt, 59 reads from
+  `ANLCx_002_A12`) and Illumina ASV `71e9be273051fbdb` (527 nt, 9 reads from
+  `BFHK_023_A2` and 11 from `BFHK_023_H8`) arise from different samples; do not
+  assume they represent the same template or attribute differences to parameters.
+- Initial comparison (2026-11-02): unit-cost global Levenshtein distance is
+  210 edits in forward orientation versus 264 against the reverse complement.
+  One minimum-edit forward alignment has 115 substitutions, 17 deletions and
+  78 insertions relative to the hybrid sequence. This is exploratory evidence,
+  not a species-distance estimate or acceptance threshold.
+- Investigate possible ITS2 reconstruction failure for `ANLCx_002_A12`:
+  the old pipeline reported 76 usable ITS2 reads, the hybrid run assigned 59,
+  but the Illumina run has 52 primer-passing reads and zero Savont assignments.
+  These counts describe different stages; inspect supporting reads and inference
+  logs before concluding that coverage or a particular parameter caused failure.
+- Agree comparison metrics and production parameter choices with the developer;
+  preserve run provenance and do not tune solely to recover desired ASV counts.
+
+**Review gate:** developer reviews parameter sensitivity and approves settings
+for full-scale validation.
+
+## M12 - Full-scale validation
 
 [ ]
 
@@ -409,7 +494,7 @@ issues are resolved.
 
 **Review gate:** developer approves production-scale behavior for release.
 
-## M11 - First release
+## M13 - First release
 
 [ ]
 

@@ -33,7 +33,7 @@ Integrity checks use the delivered FASTQ and checksums, not a retained ID list.
 | ANLCx_001_B1 | 09 | 01 | 02 | 0 |
 
 Both hybrid and Illumina demultiplexing are intended to use this dataset.
-The captured multi-target run uses hybrid demultiplexing. Empty samples must
+The captured multi-target run uses Illumina demultiplexing. Empty samples must
 remain visible in downstream summaries even when they cannot be submitted to
 ampliseq.
 
@@ -66,7 +66,7 @@ IDs. Both helpers accept plain or gzipped FASTQ.
 
 ## Configuration and validation
 
-The [configuration](config/pipeline.yaml) covers hybrid demultiplexing and
+The [configuration](config/pipeline.yaml) covers Illumina demultiplexing and
 COI, CytB, ITS2 and P3, run sequentially in that order. Site executable paths,
 executor settings and external reference databases must be configured for the execution environment.
 The raw run FASTQ must never be passed directly to ampliseq.
@@ -87,12 +87,17 @@ creating outputs. They do not run demultiplexing or ampliseq.
 ## Captured multi-target outputs
 
 The developer ran the following on 2026-11-02 with the default `local` profile,
-then reran with corrected P3 taxonomic levels:
+using Illumina demultiplexing:
 
 ```bash
 python run_pipeline.py tests/fixtures/small/run.fastq.gz \
-    tests/fixtures/small/manifest.tsv tests/fixtures/small/config results/m6b_test
+    tests/fixtures/small/manifest.tsv tests/fixtures/small/config results/m7a_test
 ```
+
+All targets use Savont `--single-strand`; ITS2 and P3 also use
+`--min-cluster-size 4` rather than the default 12 to exercise low-coverage
+recovery. These fixture-specific settings are not established production
+defaults; parameter sensitivity is investigated in M11.
 
 [ampliseq/](ampliseq/) contains four byte-preserved files per target, copied
 from published outputs into `<target>/` as frozen inputs for downstream tests:
@@ -103,8 +108,8 @@ from published outputs into `<target>/` as frozen inputs for downstream tests:
 - `sintax/ASV_tax_sintax.<database>.raw.tsv`: unparsed SINTAX calls, including
   confidences useful below the 0.8 cutoff.
 
-`<database>` is `coidb` for COI and `user` for the other targets. No other run
-outputs are captured. The published `results/` directory level is omitted;
+`<database>` is `coidb` for COI and `user` for the other targets. No other
+ampliseq outputs are captured. The published `results/` directory level is omitted;
 large run outputs remain outside the fixture. These are regression examples, not biological acceptance
 thresholds. Remaining cross-target taxonomy-reporting inconsistencies are
 deferred to M8; P3 values are preserved without normalization.
@@ -112,14 +117,27 @@ deferred to M8; P3 values are preserved without normalization.
 | Target | ASVs | ASV ID (total reads) |
 |---|---:|---|
 | COI | 0 | none |
-| CytB | 2 | `0aece8f365778d45` (308), `9e07fe1354e353c7` (29) |
-| ITS2 | 1 | `4851853f76e4a41b` (59) |
-| P3 | 2 | `0a4b74ea4eddec52` (18), `83ea72fd937a3d48` (29) |
+| CytB | 1 | `0aece8f365778d45` (162) |
+| ITS2 | 1 | `71e9be273051fbdb` (20) |
+| P3 | 2 | `0a4b74ea4eddec52` (11), `83ea72fd937a3d48` (24) |
 
 COI has header-only feature/processed taxonomy tables and an empty raw taxonomy
-file. Its overall summary reports `NA`, not zero, for `savont_output`.
+file. Its feature table contains only the `ANLCx_002_A12` sample column;
+other samples had no primer-passing reads. Its overall summary reports `NA`,
+not zero, for `savont_output`.
 The run's excluded-sample lists reported `ANLCx_001_A1` and `ANLCx_001_B1`
 as `no_demux_file`; those lists are not captured.
+
+ITS2 is supported by 9 reads from `BFHK_023_A2` and 11 from `BFHK_023_H8`.
+Its raw species call, Anopheles coluzzii, has confidence 0.59; the thresholded
+assignment stops at genus. `ANLCx_002_A12` has 52 primer-passing reads but no
+Savont assignments, an edge case for M11 investigation.
+
+[demux/demux_stats.txt](demux/demux_stats.txt) preserves 931 reported reads:
+169 first-barcode unmatched, 43 second-barcode unmatched, 1 unexpected pair
+(`barcode02_barcode64`) and 718 expected-pair reads.
+`barcode08_barcode64` has 244 demux reads but 234 Chopper input reads in every
+target summary; retain this discrepancy for M9 investigation.
 
 Verify captured bytes from [ampliseq/](ampliseq/) with
 `sha256sum -c checksums.sha256`. Unit tests also verify checksums, ASV counts,
@@ -127,8 +145,8 @@ matching unique IDs and nonempty sequences in nonempty targets.
 
 ### Historical M5c evidence
 
-The local/Singularity CytB run on 2026-10-28 completed 26 tasks with no failed
-or ignored tasks. Its counts agree with the captured multi-target CytB output:
+The local/Singularity hybrid CytB run on 2026-10-28 completed 26 tasks with no
+failed or ignored tasks. These historical counts are not the Illumina baseline:
 
 | Sample | Chopper input | Chopper output | Primer-trimmed | Savont counts |
 |---|---:|---:|---:|---:|
@@ -147,3 +165,9 @@ and no published taxonomy; its export log contained an empty-FASTA error despite
 workflow success. In contrast, the captured multi-target run publishes empty
 taxonomy tables. Execution success must not be equated with ASV recovery.
 No thresholds or analysis parameters were changed during the M5c inspection.
+
+The superseded hybrid multi-target capture from `results/m6b_test` had ASV
+counts COI=0, CytB=2, ITS2=1 and P3=2. Its ITS2 sequence
+`4851853f76e4a41b` (466 nt) had 59 reads from `ANLCx_002_A12`, unlike the
+527-nt Illumina sequence from the other two samples. The original run outputs
+were not modified during fixture replacement.

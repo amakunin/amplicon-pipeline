@@ -517,7 +517,9 @@ class CliTests(unittest.TestCase):
                 before = {
                     path.name: path.read_bytes() for path in summary.iterdir()
                 }
-                self.assertEqual(set(before), {"asvs.tsv", "assignments.tsv"})
+                self.assertEqual(
+                    set(before), {"asvs.tsv", "assignments.tsv", "summarise_asvs.log"}
+                )
                 self.assertIn(b"0aece8f365778d45", before["asvs.tsv"])
                 (summary / "assignments.tsv").unlink()
                 run.reset_mock()

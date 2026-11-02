@@ -23,7 +23,30 @@ class SummariseAsvsTests(unittest.TestCase):
             for target in ("COI", "CytB", "ITS2", "P3"):
                 command += ["--target", target, str(CAPTURED / target)]
             command += ["--output-dir", str(output)]
-            subprocess.run(command, check=True)
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(result.stdout, (output / "summarise_asvs.log").read_text())
+            for target, unique, assignments, reads in (
+                ("COI", 0, 0, 0), ("CytB", 1, 2, 162),
+                ("ITS2", 1, 2, 20), ("P3", 2, 3, 35),
+            ):
+                database = "coidb" if target == "COI" else "user"
+                directory = CAPTURED / target
+                self.assertIn(f"Target {target}: {directory.resolve()}\n", result.stdout)
+                for label, path in (
+                    ("Counts", directory / "savont/pooled_feature-table.tsv"),
+                    ("Taxonomy", directory / f"sintax/ASV_tax_sintax.{database}.tsv"),
+                    ("Raw SINTAX", directory / f"sintax/ASV_tax_sintax.{database}.raw.tsv"),
+                ):
+                    self.assertIn(f"  {label}: {path.resolve()}\n", result.stdout)
+                self.assertIn(
+                    f"  Unique ASVs: {unique}; non-zero sample-ASV assignments: "
+                    f"{assignments}; assigned reads: {reads}\n",
+                    result.stdout,
+                )
+            for filename in ("asvs.tsv", "assignments.tsv"):
+                self.assertIn(f"Output: {output / filename}\n", result.stdout)
+            self.assertIn(f"Log: {output / 'summarise_asvs.log'}\n", result.stdout)
             with (output / "asvs.tsv").open(newline="") as handle:
                 reader = csv.DictReader(handle, delimiter="\t")
                 asvs = list(reader)

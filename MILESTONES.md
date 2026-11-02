@@ -359,7 +359,7 @@ outputs before summary schemas are defined.
 
 ## M7 - ASV summaries
 
-[~]
+[x]
 
 **Goal:** stable ASV count, sequence and taxonomy tables from Savont outputs.
 
@@ -387,7 +387,7 @@ in M5-M6, with tests on small captured output.
 
 ### M7b - Driver integration
 
-[~]
+[x]
 
 - Added `asv_summary_command` in `run_pipeline.py`, shared by execution and
   dry-run. Aggregate every configured target's published results into
@@ -399,6 +399,12 @@ in M5-M6, with tests on small captured output.
 - Still exit explicitly for unimplemented stages after ASV aggregation.
 - All 30 Python 3.12 offline tests pass; syntax and editor diagnostics report
   no errors in the changed Python files.
+- Developer completed the end-to-end rerun in `results/m7b_test` (2026-11-02).
+  Sanity checks confirmed four unique target-ASVs and seven non-zero assignments:
+  COI 0/0, CytB 1/162, ITS2 1/20 and P3 2/35 (ASVs/assigned reads).
+  All summary sequences, taxonomy/raw fields and counts match published inputs;
+  feature counts match the frozen baseline. COI uses the local COIDB copy.
+  The provenance log records all input/output paths and matching target totals.
 - **Review gate:** developer approves integrated execution.
 
 ## M8 - Sample summaries

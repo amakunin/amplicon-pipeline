@@ -124,6 +124,7 @@ output_dir/
   summary/
     asvs.tsv                # unique target-ASVs and reported taxonomy
     assignments.tsv         # non-zero sample-target-ASV counts
+    summarise_asvs.log       # successful aggregation paths and counts
   plots/                    # planned
 ```
 
@@ -166,6 +167,11 @@ command after all configured ampliseq targets finish and includes it in
   Taxonomy strings and confidence values are unchanged; absent ranks are blank.
 - `assignments.tsv`: one row per non-zero sample-target-ASV assignment, with
   `sample_id`, `target`, `asv_id` and integer `read_count`.
+
+Successful aggregation reports resolved target directories, input/output paths
+and per-target unique ASVs, non-zero sample-ASV assignments and assigned reads
+to stdout and `summarise_asvs.log`. The log is replaced on each successful run;
+it is not an error log.
 
 Rows follow supplied target and source-table order; rank columns follow first
 appearance, including headers from empty targets. Empty targets contribute no

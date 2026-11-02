@@ -11,8 +11,9 @@ sample_inference: "pooled"
 savont_options: "--min-read-length 600 --max-read-length 900 --single-strand"
 decontam: "none"
 
-# SINTAX: built-in taxonomy database and confidence cutoff.
-sintax_ref_taxonomy: "coidb"
+# SINTAX: local COIDB 221216 copy and confidence cutoff.
+sintax_ref_tax_custom: "../../../../../culicidae_ref/coidb-221216.sintax.fa.gz"
+sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species,BOLD_bin"
 sintax_cutoff: 0.8
 
 # Skips: disable unused analysis and reporting steps.

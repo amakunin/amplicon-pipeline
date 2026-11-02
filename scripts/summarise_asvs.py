@@ -31,13 +31,15 @@ def read_asv_table(
 
 
 def summarise_asvs(target_dirs: dict[str, Path], output_dir: Path) -> None:
+    output_dir = output_dir.resolve()
+    report: list[str] = []
     ranks: list[str] = []
     asvs: list[dict[str, str | int]] = []
     assignments: list[dict[str, str | int]] = []
     for target, results_dir in target_dirs.items():
-        sample_columns, features = read_asv_table(
-            results_dir / "savont/pooled_feature-table.tsv"
-        )
+        results_dir = results_dir.resolve()
+        feature_path = results_dir / "savont/pooled_feature-table.tsv"
+        sample_columns, features = read_asv_table(feature_path)
         taxonomy_paths = [
             path for path in sorted((results_dir / "sintax").glob("ASV_tax_sintax.*.tsv"))
             if not path.name.endswith(".raw.tsv")
@@ -45,15 +47,22 @@ def summarise_asvs(target_dirs: dict[str, Path], output_dir: Path) -> None:
         if len(taxonomy_paths) != 1:
             raise ValueError(f"Expected one processed SINTAX table: {results_dir / 'sintax'}")
         taxonomy_path = taxonomy_paths[0]
+        raw_path = taxonomy_path.with_suffix(".raw.tsv")
+        report.extend([
+            f"Target {target}: {results_dir}",
+            f"  Counts: {feature_path.resolve()}",
+            f"  Taxonomy: {taxonomy_path.resolve()}",
+            f"  Raw SINTAX: {raw_path.resolve()}",
+        ])
         columns, taxonomy = read_asv_table(taxonomy_path)
-        _, raw = read_asv_table(
-            taxonomy_path.with_suffix(".raw.tsv"), RAW_COLUMNS
-        )
+        _, raw = read_asv_table(raw_path, RAW_COLUMNS)
         if features.keys() != taxonomy.keys() or features.keys() != raw.keys():
             raise ValueError(f"Inconsistent ASV IDs across counts and SINTAX: {target}")
         for column in columns:
             if column not in ("ASV_ID", "sequence", "confidence") and column not in ranks:
                 ranks.append(column)
+        assignment_count = 0
+        read_count = 0
         for asv_id, feature in features.items():
             annotation = taxonomy[asv_id]
             sequence = annotation["sequence"]
@@ -73,10 +82,16 @@ def summarise_asvs(target_dirs: dict[str, Path], output_dir: Path) -> None:
                 if count < 0:
                     raise ValueError(f"Negative read count: {target}, {asv_id}, {sample_id}")
                 if count:
+                    assignment_count += 1
+                    read_count += count
                     assignments.append({
                         "sample_id": sample_id, "target": target,
                         "asv_id": asv_id, "read_count": count,
                     })
+        report.append(
+            f"  Unique ASVs: {len(features)}; non-zero sample-ASV assignments: "
+            f"{assignment_count}; assigned reads: {read_count}"
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for filename, fields, rows in (
@@ -88,6 +103,12 @@ def summarise_asvs(target_dirs: dict[str, Path], output_dir: Path) -> None:
             writer = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
             writer.writeheader()
             writer.writerows(rows)
+        report.append(f"Output: {output_dir / filename}")
+    log_path = output_dir / "summarise_asvs.log"
+    report.append(f"Log: {log_path}")
+    text = "\n".join(report) + "\n"
+    log_path.write_text(text)
+    print(text, end="")
 
 
 def main() -> None:

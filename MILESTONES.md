@@ -379,7 +379,26 @@ in M5-M6, with tests on small captured output.
   keeping raw counts and classifications. Classifications: no reads,
   preprocessing loss, no ASVs, unresolved taxonomy, QC rejection, processing
   failure.
-- Reporting thresholds stay unset until the developer defines them.
+- Annotate all ASVs and assignments before sample-level filtering; retain
+  original rows, counts and every applicable QC reason. Length and coding
+  checks apply to target-ASV sequences; contamination, minimum-read and
+  read-count-ratio labels apply to sample-target-ASV assignments.
+- Apply sequence QC, then contamination and target-specific minimum-read
+  labels. Calculate cross-sample contamination comparisons once, not
+  sequentially as samples acquire labels.
+- Within each sample-target, select the highest-read-count ASV without
+  disqualifying labels as primary. Keep that comparator fixed while labelling
+  low-read-count secondary ASVs by their ratio to the primary. Secondary does
+  not itself mean problematic; if none qualify, there is no primary.
+- Count ASVs without disqualifying labels, then compare each eligible
+  secondary's taxonomy with the primary. Retain each comparison for mixtures
+  of several ASVs; distinguish supported disagreement from missing or
+  low-confidence resolution. Eligibility is not biological certainty.
+- Before implementation, agree thresholds, disqualifying labels, tied-primary
+  handling, contamination comparison scope and whether sequence-QC failures
+  can supply its cross-sample maximum. Define target-specific length rules
+  and coding checks, including genetic code, orientation and reading frame.
+- Interpret sample-target outcomes before comparing signals across targets.
 - Resolve taxonomy-reporting inconsistencies across amplicons, still observed
   after the M6 fixture rerun with corrected P3 taxonomic levels. Agree the
   reporting rules with the developer before implementation.

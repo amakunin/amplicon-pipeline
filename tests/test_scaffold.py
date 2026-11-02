@@ -22,6 +22,7 @@ from run_pipeline import (
     load_config,
     read_manifest,
     run_ampliseq,
+    run_demux,
     write_resource_config,
 )
 
@@ -241,26 +242,111 @@ class ScaffoldTests(unittest.TestCase):
                 run_ampliseq(config, args)
                 self.assertEqual(len(nextflow_commands), 2)
 
-                args.profile = "lsf"
+                (target_dir / "results/overall_summary.tsv").unlink()
                 run_ampliseq(config, args)
                 self.assertEqual(len(nextflow_commands), 3)
 
-                config["threads"] += 1
+                args.profile = "lsf"
                 run_ampliseq(config, args)
                 self.assertEqual(len(nextflow_commands), 4)
+
+                config["threads"] += 1
+                run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 5)
 
                 with gzip.open(
                     demux_dir / "ont_barcode10_barcode89.fastq.gz", "wb"
                 ) as handle:
                     handle.write(b"@r2\nTGCA\n+\nIIII\n")
                 run_ampliseq(config, args)
-                self.assertEqual(len(nextflow_commands), 5)
+                self.assertEqual(len(nextflow_commands), 6)
 
                 reference.write_text(">ref\nTGCA\n")
                 run_ampliseq(config, args)
-                self.assertEqual(len(nextflow_commands), 6)
+                self.assertEqual(len(nextflow_commands), 7)
 
             self.assertTrue(all("-resume" in command for command in nextflow_commands))
+
+    def test_demux_completion_record_and_partial_output_guard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "output"
+            output_dir.mkdir()
+            run_fastq = Path(temporary) / "run.fastq.gz"
+            run_fastq.write_bytes(b"raw run")
+            config, _ = load_config(FIXTURE / "config")
+            args = SimpleNamespace(
+                config_dir=FIXTURE / "config",
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=output_dir,
+                run_fastq_gz=run_fastq,
+            )
+            calls = []
+
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                demux_dir = Path(command[command.index("--output-dir") + 1])
+                demux_dir.mkdir()
+                (demux_dir / "reads.fastq.gz").write_bytes(b"reads")
+                (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(
+                run_pipeline.subprocess, "run", side_effect=fake_run
+            ):
+                run_demux(config, args)
+                record_path = output_dir / ".demux-completion.json"
+                self.assertTrue(record_path.exists())
+                run_demux(config, args)
+                self.assertEqual(len(calls), 1)
+
+                (output_dir / "demux/reads.fastq.gz").unlink()
+                with self.assertRaisesRegex(SystemExit, "output files are missing"):
+                    run_demux(config, args)
+                self.assertEqual(len(calls), 1)
+                self.assertTrue((output_dir / "demux/demux_stats.txt").exists())
+
+                (output_dir / "demux/reads.fastq.gz").write_bytes(b"reads")
+                run_fastq.write_bytes(b"changed raw run")
+                with self.assertRaisesRegex(SystemExit, "inputs or configuration"):
+                    run_demux(config, args)
+                self.assertEqual(len(calls), 1)
+
+                record_path.unlink()
+                with self.assertRaisesRegex(
+                    SystemExit, "without a completion record"
+                ):
+                    run_demux(config, args)
+                self.assertEqual(len(calls), 1)
+    def test_demux_failure_does_not_write_completion_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "output"
+            output_dir.mkdir()
+            run_fastq = Path(temporary) / "run.fastq.gz"
+            run_fastq.write_bytes(b"raw run")
+            config, _ = load_config(FIXTURE / "config")
+            args = SimpleNamespace(
+                config_dir=FIXTURE / "config",
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=output_dir,
+                run_fastq_gz=run_fastq,
+            )
+
+            def fail_after_partial_output(command, **kwargs):
+                demux_dir = Path(command[command.index("--output-dir") + 1])
+                (demux_dir / ".work").mkdir(parents=True)
+                raise subprocess.CalledProcessError(1, command)
+
+            with mock.patch.object(
+                run_pipeline.subprocess,
+                "run",
+                side_effect=fail_after_partial_output,
+            ):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    run_demux(config, args)
+
+            self.assertFalse((output_dir / ".demux-completion.json").exists())
+            with self.assertRaisesRegex(SystemExit, "without a completion record"):
+                run_demux(config, args)
 
     def test_check_nextflow_requires_version_26(self) -> None:
         def completed(version: str) -> subprocess.CompletedProcess:
@@ -294,6 +380,13 @@ class ScaffoldTests(unittest.TestCase):
             target_dir = Path(temporary) / "out/ampliseq/CytB"
 
             def fake_run(command, **kwargs):
+                if "demux_" in command[1]:
+                    demux_dir = Path(
+                        command[command.index("--output-dir") + 1]
+                    )
+                    demux_dir.mkdir(parents=True)
+                    (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
+                    return subprocess.CompletedProcess(command, 0)
                 if "prepare_inputs.py" in command[1]:
                     target_dir.mkdir(parents=True, exist_ok=True)
                     reads = Path(temporary) / "input.fastq.gz"
@@ -305,6 +398,12 @@ class ScaffoldTests(unittest.TestCase):
                         "sample_id\treason\n"
                     )
                     (target_dir / "params.yaml").write_text("input: samplesheet.tsv\n")
+                    return subprocess.CompletedProcess(command, 0)
+                if command[0] == "nextflow":
+                    results_dir = target_dir / "results"
+                    results_dir.mkdir(parents=True, exist_ok=True)
+                    (results_dir / "overall_summary.tsv").write_text("result\n")
+                    return subprocess.CompletedProcess(command, 0)
 
             with mock.patch.object(sys, "argv", argv), mock.patch.object(
                 run_pipeline, "check_nextflow"

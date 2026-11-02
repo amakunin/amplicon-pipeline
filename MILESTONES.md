@@ -281,26 +281,30 @@ verified, and failures stop the run with a clear message.
 - The old-pipeline counts remain sanity references, not exact acceptance
   targets. No thresholds or analysis parameters were changed during inspection.
 
-### M5d - Restart and completion records [ ]
+### M5d - Restart and completion records [x]
 - Per-target `.completion.json` stores SHA-256 fingerprints of the raw run,
   manifest, target/config files, configured reference resources and generated
-  ampliseq inputs, plus the selected Nextflow profile.
+  ampliseq inputs, plus the selected Nextflow profile and published result
+  files.
 - A matching record skips the target; a missing or stale record runs Nextflow
   with `-resume`. The record is replaced only after success, and no files are
-  deleted automatically.
+  deleted automatically. Missing or changed published outputs trigger a rerun.
 - `prepare_inputs.py` can rewrite its generated inputs in an existing target
   directory.
-- Demux contract for M5e: use a separate completion record with fingerprints
-  for the run, manifest, demux configuration and barcode resources, plus a
-  record of generated outputs. Skip only when the record and outputs match;
-  for mismatches, fail without deleting existing outputs.
 - **Review gate:** developer approves rerun behaviour.
 
 ### M5e - Review demux resume logic [ ]
-- Review whether and how the demux step is skipped or validated on rerun
-  (currently the demux script refuses an existing output directory).
-- Decide the completion record for demux together with M5d.
-- **Review gate:** developer approves demux rerun behaviour.
+- Driver-owned `.demux-completion.json` stores fingerprints for the run,
+  manifest, demux config, selected barcode mappings/resources and demux script,
+  plus the generated output-file fingerprints.
+- Skip demux only when both inputs/config and all generated output files match.
+  If the output directory exists but is incomplete, stale or has no record,
+  fail clearly without changing or deleting it. If the output directory is
+  absent, run demux; write the record only after success.
+- **Review gate:** developer manually runs the fixture, removes selected
+  outputs from demux and ampliseq stages, reruns the pipeline, and checks that
+  intact stages skip, incomplete demux fails safely, and missing ampliseq
+  outputs trigger Nextflow `-resume`. Developer approves demux rerun behaviour.
 
 ## M6 - Multi-target ampliseq execution
 

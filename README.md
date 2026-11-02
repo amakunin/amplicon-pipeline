@@ -109,6 +109,7 @@ Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 
 ```text
 output_dir/
+  .demux-completion.json    # demux input and output fingerprints
   demux/                    # barcode-named FASTQs and demux_stats.txt
   ampliseq/<target>/         # independent Nextflow launch directory
     samplesheet.tsv
@@ -140,9 +141,11 @@ Counts, sequences and taxonomy share ASV IDs. These are observed pooled-mode,
 custom-reference filenames, not yet a contract for other inference/database modes.
 Future sample summaries must include every manifest sample, including those
 without reads; input preparation currently records these in `excluded_samples.tsv`.
-For each target, the completion record skips ampliseq only when its input,
-configuration and selected profile fingerprints match; otherwise Nextflow runs
-with `-resume`. Demultiplexing rerun behavior is handled separately.
+Demultiplexing is skipped only when its record matches the run, manifest,
+configuration, barcode resources and all generated files. An existing partial
+or stale demux directory causes a clear error and is left untouched. For each
+target, ampliseq is skipped only when its input, configuration, selected profile
+and published result files match; otherwise Nextflow runs with `-resume`.
 
 ## Tests
 

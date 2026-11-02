@@ -164,12 +164,115 @@ def ampliseq_command(
     ]
 
 
+def file_fingerprints(paths: list[Path]) -> dict[str, str]:
+    return {
+        str(path.resolve()): sha256_file(path)
+        for path in sorted(set(paths))
+    }
+
+
+def output_fingerprints(directory: Path) -> dict[str, Any]:
+    files = (
+        {
+            str(path.relative_to(directory)): sha256_file(path)
+            for path in sorted(directory.rglob("*"))
+            if path.is_file()
+        }
+        if directory.is_dir()
+        else {}
+    )
+    return {
+        "exists": directory.is_dir(),
+        "files": files,
+    }
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def demux_fingerprints(
+    config: dict[str, Any],
+    args: argparse.Namespace,
+    command: list[str],
+) -> dict[str, str]:
+    demux = config["demux"]
+    method = demux["method"]
+    barcode_ends = ("R",) if method == "hybrid" else ("F", "R")
+    mapping_keys = (
+        ("ont_barcode_mapping", "reverse_barcode_mapping")
+        if method == "hybrid"
+        else ("front_barcode_mapping", "reverse_barcode_mapping")
+    )
+    resources = [
+        demux[key]
+        for key in mapping_keys
+        if demux.get(key) is not None
+    ]
+    resources.extend(
+        demux["barcode_dir"] / f"Sanger_custom_barcode_{end}.{extension}"
+        for end in barcode_ends
+        for extension in ("tmol", "fasta")
+    )
+    paths = [
+        args.run_fastq_gz,
+        args.manifest_tsv,
+        args.config_dir / "pipeline.yaml",
+        Path(command[1]),
+        *resources,
+    ]
+    fingerprints = file_fingerprints(paths)
+    fingerprints["runtime:demux-command"] = hashlib.sha256(
+        json.dumps(command).encode()
+    ).hexdigest()
+    return fingerprints
+
+
+def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
+    command = demux_command(config, args.run_fastq_gz, args.output_dir)
+    demux_dir = args.output_dir.resolve() / "demux"
+    record_path = args.output_dir.resolve() / ".demux-completion.json"
+    fingerprints = demux_fingerprints(config, args, command)
+
+    if demux_dir.exists():
+        if not record_path.exists():
+            raise SystemExit(
+                f"demux output exists without a completion record; "
+                f"refusing to overwrite: {demux_dir}"
+            )
+        record = json.loads(record_path.read_text())
+        outputs = output_fingerprints(demux_dir)
+        if (
+            record.get("status") == "complete"
+            and record.get("fingerprints") == fingerprints
+            and record.get("outputs") == outputs
+        ):
+            print("Skipping demultiplexing: completion record matches")
+            return
+        if record.get("fingerprints") != fingerprints:
+            reason = "inputs or configuration changed"
+        else:
+            reason = "output files are missing, changed, or unexpected"
+        raise SystemExit(
+            f"demux output is stale ({reason}); refusing to overwrite: "
+            f"{demux_dir}"
+        )
+
+    subprocess.run(command, check=True)
+    if not demux_dir.is_dir():
+        raise FileNotFoundError(demux_dir)
+    write_completion_record(
+        record_path,
+        {
+            "fingerprints": fingerprints,
+            "outputs": output_fingerprints(demux_dir),
+            "status": "complete",
+        },
+    )
 
 
 def target_fingerprints(
@@ -200,18 +303,14 @@ def target_fingerprints(
             Path(row["fastq_1"])
             for row in csv.DictReader(handle, delimiter="\t")
         )
-    fingerprints = {
-        str(path.resolve()): sha256_file(path)
-        for path in sorted(set(paths))
-    }
+    fingerprints = file_fingerprints(paths)
     fingerprints["runtime:profile"] = hashlib.sha256(
         args.profile.encode()
     ).hexdigest()
     return fingerprints
 
 
-def write_completion_record(path: Path, fingerprints: dict[str, str]) -> None:
-    record = {"fingerprints": fingerprints, "status": "complete"}
+def write_completion_record(path: Path, record: dict[str, Any]) -> None:
     temporary_path = path.with_name(f"{path.name}.tmp")
     temporary_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     temporary_path.replace(path)
@@ -239,7 +338,11 @@ def run_ampliseq(
         write_resource_config(target_dir, config["threads"])
         fingerprints = target_fingerprints(args, config, target, target_dir)
         record_path = target_dir / ".completion.json"
-        expected_record = {"fingerprints": fingerprints, "status": "complete"}
+        expected_record = {
+            "fingerprints": fingerprints,
+            "outputs": output_fingerprints(target_dir / "results"),
+            "status": "complete",
+        }
         if (
             record_path.exists()
             and json.loads(record_path.read_text()) == expected_record
@@ -251,7 +354,17 @@ def run_ampliseq(
             cwd=target_dir,
             check=True,
         )
-        write_completion_record(record_path, fingerprints)
+        results_dir = target_dir / "results"
+        if not results_dir.is_dir():
+            raise FileNotFoundError(results_dir)
+        write_completion_record(
+            record_path,
+            {
+                "fingerprints": fingerprints,
+                "outputs": output_fingerprints(results_dir),
+                "status": "complete",
+            },
+        )
 
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
@@ -301,7 +414,7 @@ def main() -> None:
             print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")
         return
     check_nextflow()
-    subprocess.run(command, check=True)
+    run_demux(config, args)
     run_ampliseq(config, args)
     parser.exit(
         status=1,

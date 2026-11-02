@@ -34,15 +34,14 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
             demux[key] = (config_dir / demux[key]).resolve()
 
     targets = {}
-    for name, filename in config["targets"].items():
-        path = (config_dir / filename).resolve()
-        config["targets"][name] = path
-        with path.open() as handle:
-            parameters = yaml.safe_load(handle)
+    ampliseq = config["ampliseq"]
+    for name, overrides in ampliseq["targets"].items():
+        parameters = {**ampliseq["common"], **overrides}
         for key in ("sintax_ref", "sintax_ref_tax_custom"):
-            if key in parameters:
+            if parameters.get(key) is not None:
                 parameters[key] = str((config_dir / parameters[key]).resolve())
         targets[name] = parameters
+    config["ampliseq"]["targets"] = targets
     return config, targets
 
 
@@ -233,11 +232,16 @@ def demux_fingerprints(
     paths = [
         args.run_fastq_gz,
         args.manifest_tsv,
-        args.config_dir / "pipeline.yaml",
         Path(command[1]),
         *resources,
     ]
     fingerprints = file_fingerprints(paths)
+    fingerprints["runtime:demux-config"] = hashlib.sha256(
+        json.dumps(
+            {"method": method, **{key: str(demux[key]) for key in mapping_keys}},
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
     fingerprints["runtime:demux-command"] = hashlib.sha256(
         json.dumps(command).encode()
     ).hexdigest()
@@ -290,12 +294,9 @@ def target_fingerprints(
     paths = [
         args.run_fastq_gz,
         args.manifest_tsv,
-        args.config_dir / "pipeline.yaml",
-        config["targets"][target],
         args.config_dir / "ampliseq.config",
         samplesheet,
         target_dir / "excluded_samples.tsv",
-        target_dir / "params.yaml",
         target_dir / "resources.config",
     ]
     parameters = yaml.safe_load((target_dir / "params.yaml").read_text())
@@ -309,6 +310,14 @@ def target_fingerprints(
             for row in csv.DictReader(handle, delimiter="\t")
         )
     fingerprints = file_fingerprints(paths)
+    fingerprints["runtime:ampliseq-params"] = hashlib.sha256(
+        json.dumps(parameters, sort_keys=True).encode()
+    ).hexdigest()
+    fingerprints["runtime:ampliseq-command"] = hashlib.sha256(
+        json.dumps(
+            ampliseq_command(args.config_dir, target_dir, args.profile)
+        ).encode()
+    ).hexdigest()
     fingerprints["runtime:profile"] = hashlib.sha256(
         args.profile.encode()
     ).hexdigest()
@@ -320,7 +329,7 @@ def run_ampliseq(
     args: argparse.Namespace,
 ) -> None:
     ampliseq_dir = args.output_dir.resolve() / "ampliseq"
-    for target in config["targets"]:
+    for target in config["ampliseq"]["targets"]:
         subprocess.run(
             [
                 sys.executable,
@@ -363,7 +372,7 @@ def asv_summary_command(config: dict[str, Any], output_dir: Path) -> list[str]:
         sys.executable,
         str(Path(__file__).resolve().parent / "scripts/summarise_asvs.py"),
     ]
-    for target in config["targets"]:
+    for target in config["ampliseq"]["targets"]:
         command += [
             "--target", target, str(output_dir / "ampliseq" / target / "results"),
         ]
@@ -372,7 +381,7 @@ def asv_summary_command(config: dict[str, Any], output_dir: Path) -> list[str]:
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     print(f"Method: {config['demux']['method']}")
-    print(f"Targets: {', '.join(config['targets'])}")
+    print(f"Targets: {', '.join(config['ampliseq']['targets'])}")
     print("Samples:")
     for sample in samples:
         indices = ", ".join(
@@ -412,7 +421,7 @@ def main() -> None:
     if args.dry_run:
         print_plan(config, samples)
         print(f"Demux command: {shlex.join(command)}")
-        for target in config["targets"]:
+        for target in config["ampliseq"]["targets"]:
             target_dir = args.output_dir.resolve() / "ampliseq" / target
             ampliseq = ampliseq_command(args.config_dir, target_dir, args.profile)
             print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")

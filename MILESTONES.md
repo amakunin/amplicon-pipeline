@@ -444,6 +444,52 @@ in M5-M6, with tests on small captured output.
 
 **Review gate:** developer agrees the QC definitions and denominators.
 
+### M8a - Stage-specific restart fingerprints
+
+[x]
+
+- Prerequisite for configuration consolidation: replace whole-YAML fingerprints
+  with effective demux settings/command and per-target resolved ampliseq
+  parameters/command. Keep input, resource, executor and output fingerprints.
+- Verify summary-only changes leave upstream fingerprints unchanged, target
+  parameters affect only that target, and relevant settings/resources still
+  invalidate completion. Preserve existing skip, safe-failure and resume rules.
+- Older completion records are incompatible; never rewrite them automatically.
+  Use a fresh output directory for migration validation.
+- All 31 Python 3.12 offline tests pass; syntax and editor diagnostics report
+  no errors in the changed Python files.
+- **Review gate:** developer approves fingerprint isolation before M8b.
+
+### M8b - Consolidated configuration
+
+[x]
+
+- Consolidate pipeline YAML into `demux`, `ampliseq.common`,
+  `ampliseq.targets`, `summary.common` and `summary.targets`, retaining shared
+  `threads` and separate Nextflow executor configuration.
+- Target values replace common values by parameter name; no concatenation.
+  Driver-owned `input` and `outdir` win. Keep writing resolved parameters
+  under each run's `ampliseq/<target>/params.yaml`.
+- Update configuration loading, preparation, driver consumers, examples and
+  tests together; remove superseded target YAMLs without changing effective
+  scientific parameters. No QC thresholds added.
+- Migrated example and fixture YAMLs; retained `load_config`'s return signature
+  and existing input-preparation logic. Updated consumers to the nested target
+  registry; old-layout tests replaced with merge/override tests.
+- Developer approved the expanded file-count budget for this migration.
+- Verified exact resolved and generated parameter equivalence against
+  pre-migration snapshots for the example and all four fixture targets.
+  All 31 Python 3.12 offline tests and both fixture checksum manifests pass;
+  syntax, editor diagnostics and whitespace checks pass.
+- Developer completed `results/m8b_test` (2026-11-02). Current configuration,
+  generated parameters, demux/target completion fingerprints and output
+  inventories match. Both summary TSVs are byte-identical to M7b: four
+  target-ASVs and seven assignments; all fields/counts match published inputs.
+  Compared with that run, COI no longer sets `decontam: none` and other targets
+  explicitly set `sintax_cutoff: 0.8`; these match the current configuration.
+- **Review gate:** agree exact interfaces before implementation, then verify
+  parameter equivalence and stage-specific invalidation.
+
 ## M9 - Read-count accounting
 
 [ ]
@@ -531,6 +577,13 @@ validation; distinguish changes in read recovery from changes in ASV inference.
   logs before concluding that coverage or a particular parameter caused failure.
 - Agree comparison metrics and production parameter choices with the developer;
   preserve run provenance and do not tune solely to recover desired ASV counts.
+- Investigate repeated Porechop/Chopper preprocessing across targets: measure
+  runtime/resource costs before deciding whether to extract one shared stage.
+  Verify identical preprocessing parameters, ampliseq support for skipping
+  both tools, FASTQ/downstream-count equivalence, provenance and restart
+  invalidation. Consider an explicit completion barrier before target branches
+  for LSF; avoid coupling targets by reusing the first target's work outputs.
+  Defer implementation and prioritisation until this investigation.
 
 **Review gate:** developer reviews parameter sensitivity and approves settings
 for full-scale validation.

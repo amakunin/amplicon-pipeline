@@ -92,16 +92,21 @@ python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile
 
 Copy [config/example/](config/example/) to a run-specific directory and edit:
 
-- [pipeline.yaml](config/example/pipeline.yaml): threads (demultiplexing and ampliseq CPU limit), targets to run, demultiplexing
-  method, optional Dorado path and barcode resources.
-- [targets/COI.yaml](config/example/targets/COI.yaml): one file per target, using
-  native ampliseq parameters (primers, reference database, Savont options).
-  The pipeline sets `input` and `outdir` itself.
+- [pipeline.yaml](config/example/pipeline.yaml): shared `threads`, `demux`
+  settings, native ampliseq parameters under `ampliseq.common` and
+  `ampliseq.targets`, and reserved `summary.common`/`summary.targets` sections.
+  Target values replace common values by parameter name, including entire
+  option strings and lists; they are not concatenated or recursively merged.
+  `ampliseq.targets` defines targets and execution order. The pipeline sets
+  `input` and `outdir` last and writes flattened per-target `params.yaml`.
 - [ampliseq.config](config/example/ampliseq.config): Nextflow configuration for
   your executor, container runtime and site resources.
 
 Relative paths in the configuration resolve against the configuration
 directory, so update the example barcode paths if you copy it elsewhere.
+Separate target YAML files and the old top-level `targets` layout are no longer
+supported. Summary sections are empty placeholders until QC settings are agreed;
+they are not passed to ampliseq.
 Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 [provenance notes](assets/barcodes/README.md).
 
@@ -187,6 +192,12 @@ configuration, barcode resources and all generated files. An existing partial
 or stale demux directory causes a clear error and is left untouched. For each
 target, ampliseq is skipped only when its input, configuration, selected profile
 and published result files match; otherwise Nextflow runs with `-resume`.
+Configuration fingerprints are stage-specific: demux uses its effective
+settings/command and barcode resources; each ampliseq target uses its resolved
+parameters, command, executor configuration and input/reference files. Unrelated
+YAML changes do not invalidate upstream stages. Completion records from before
+this fingerprint change are incompatible: existing demux outputs fail safely
+without modification; use a fresh output directory for migration validation.
 ASV aggregation always reruns, including when all ampliseq targets are skipped,
 replacing its two summary tables from the current published results.
 

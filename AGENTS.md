@@ -69,10 +69,13 @@ The demux scripts and `prepare_inputs.py` are implemented (demux contract in
   version 3.0.0, from a stable per-target execution directory. Both the
   Nextflow cache and `work/` are kept for `-resume`.
 - **Configuration.** Relative resource paths resolve against the user's config
-  directory. `pipeline.yaml` lists targets explicitly. Target YAML files use
-  native ampliseq parameters; the driver owns `input` and `outdir` and writes
-  resolved parameter files. `ampliseq.config` is passed with `-c` and the
-  `local` or `lsf` profile is selected by the driver.
+  directory. `pipeline.yaml` holds `demux`, `ampliseq.common`,
+  `ampliseq.targets` and reserved `summary.common`/`summary.targets` sections,
+  plus shared `threads`. Ampliseq targets define execution order and override
+  common native parameters by key, without recursive merging or concatenation.
+  The driver owns `input` and `outdir` and writes resolved per-target parameter
+  files. Separate target YAMLs are not supported. `ampliseq.config` is passed
+  with `-c` and the `local` or `lsf` profile is selected by the driver.
 - **Savont, not DADA2.** Ampliseq 3.0.0's long-format counts summary is
   DADA2-only, so ASV summaries must read Savont outputs. Check the real
   published filenames on a small run before fixing adapter names.

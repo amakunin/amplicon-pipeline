@@ -9,6 +9,8 @@ import unittest
 
 import yaml
 
+from run_pipeline import load_config
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/small"
@@ -85,6 +87,12 @@ class PrepareInputsTests(unittest.TestCase):
                 "ANLCx_001_B1\tno_demux_file\n",
             )
             parameters = yaml.safe_load((target_dir / "params.yaml").read_text())
+            _, targets = load_config(FIXTURE / "config")
+            self.assertEqual(parameters, {
+                **targets["CytB"],
+                "input": str(target_dir / "samplesheet.tsv"),
+                "outdir": str(target_dir / "results"),
+            })
             self.assertEqual(parameters["input"], str(target_dir / "samplesheet.tsv"))
             self.assertEqual(parameters["outdir"], str(target_dir / "results"))
             self.assertEqual(parameters["asv_calling"], "savont")

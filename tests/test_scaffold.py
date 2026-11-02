@@ -39,32 +39,42 @@ class ConfigManifestTests(unittest.TestCase):
         )
         self.assertEqual(config["demux"]["barcode_dir"], ROOT / "assets/barcodes")
         self.assertNotIn("seqtk_exec", config["demux"])
-        self.assertEqual(
-            config["targets"]["CytB"], FIXTURE / "config/targets/CytB.yaml"
-        )
+        self.assertEqual(config["ampliseq"]["targets"], targets)
+        self.assertEqual(list(targets), ["COI", "CytB", "ITS2", "P3"])
         self.assertEqual(targets["CytB"]["asv_calling"], "savont")
 
-    def test_load_config_resolves_relative_executable_paths(self) -> None:
+    def test_load_config_merges_parameters_and_resolves_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             config_dir = Path(temporary)
-            targets_dir = config_dir / "targets"
-            targets_dir.mkdir()
             (config_dir / "pipeline.yaml").write_text(
-                "targets:\n"
-                "  COI: targets/COI.yaml\n"
+                "ampliseq:\n"
+                "  common:\n"
+                "    asv_calling: savont\n"
+                "    skip_fastqc: true\n"
+                "    savont_options: '--single-strand'\n"
+                "    sintax_ref: refs/legacy.fasta\n"
+                "  targets:\n"
+                "    COI:\n"
+                "      skip_fastqc: false\n"
+                "      savont_options: '--min-cluster-size 4'\n"
+                "      sintax_ref_tax_custom: ../culicidae_ref/CytB.fasta\n"
+                "    CytB: {}\n"
+                "summary:\n"
+                "  common: {}\n"
+                "  targets: {}\n"
                 "demux:\n"
                 "  method: hybrid\n"
                 "  dorado_exec: bin/dorado\n"
                 "  reverse_barcode_mapping: null\n"
             )
-            (targets_dir / "COI.yaml").write_text(
-                "asv_calling: savont\n"
-                "sintax_ref: refs/legacy.fasta\n"
-                "sintax_ref_tax_custom: ../culicidae_ref/CytB.fasta\n"
-            )
-
             config, targets = load_config(config_dir)
 
+            self.assertEqual(targets["COI"]["asv_calling"], "savont")
+            self.assertFalse(targets["COI"]["skip_fastqc"])
+            self.assertEqual(targets["COI"]["savont_options"], "--min-cluster-size 4")
+            self.assertTrue(targets["CytB"]["skip_fastqc"])
+            self.assertEqual(targets["CytB"]["savont_options"], "--single-strand")
+            self.assertEqual(config["ampliseq"]["common"]["sintax_ref"], "refs/legacy.fasta")
             self.assertEqual(
                 config["demux"]["dorado_exec"],
                 (config_dir / "bin/dorado").resolve(),
@@ -115,6 +125,99 @@ class ConfigManifestTests(unittest.TestCase):
 
 
 class CommandRestartTests(unittest.TestCase):
+    def test_stage_configuration_fingerprints_are_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            config_dir = directory / "config"
+            shutil.copytree(FIXTURE / "config", config_dir)
+            barcodes = directory / "barcodes"
+            shutil.copytree(ROOT / "assets/barcodes", barcodes)
+            pipeline_path = config_dir / "pipeline.yaml"
+            settings = run_pipeline.yaml.safe_load(pipeline_path.read_text())
+            settings["ampliseq"]["targets"] = {
+                name: settings["ampliseq"]["targets"][name] for name in ("COI", "CytB")
+            }
+            settings["demux"]["barcode_dir"] = str(barcodes)
+            for key in ("front_barcode_mapping", "reverse_barcode_mapping"):
+                settings["demux"][key] = str(
+                    barcodes / Path(settings["demux"][key]).name
+                )
+            for target, parameters in settings["ampliseq"]["targets"].items():
+                reference = directory / f"{target}.fasta"
+                reference.write_text(">ref\nACGT\n")
+                parameters["sintax_ref_tax_custom"] = str(reference)
+            pipeline_path.write_text(run_pipeline.yaml.safe_dump(settings))
+            args = SimpleNamespace(
+                config_dir=config_dir,
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=directory / "output",
+                run_fastq_gz=directory / "run.fastq.gz",
+                profile="local",
+            )
+            args.run_fastq_gz.write_bytes(b"raw run")
+            demux_dir = args.output_dir / "demux"
+            demux_dir.mkdir(parents=True)
+
+            def fingerprints():
+                config, _ = load_config(config_dir)
+                targets = {}
+                for target in config["ampliseq"]["targets"]:
+                    subprocess.run([
+                        sys.executable, str(ROOT / "scripts/prepare_inputs.py"),
+                        "--manifest", str(args.manifest_tsv),
+                        "--config-dir", str(config_dir),
+                        "--demux-dir", str(demux_dir),
+                        "--target", target,
+                        "--output-dir", str(args.output_dir / "ampliseq"),
+                    ], check=True)
+                    target_dir = args.output_dir / "ampliseq" / target
+                    write_resource_config(target_dir, config["threads"])
+                    targets[target] = run_pipeline.target_fingerprints(
+                        args, config, target, target_dir
+                    )
+                demux = run_pipeline.demux_fingerprints(
+                    config, args, demux_command(config, args.run_fastq_gz, args.output_dir)
+                )
+                return demux, targets
+
+            baseline_demux, baseline_targets = fingerprints()
+            settings["summary"]["targets"] = {"COI": {}}
+            pipeline_path.write_text(run_pipeline.yaml.safe_dump(settings))
+            self.assertEqual(fingerprints(), (baseline_demux, baseline_targets))
+
+            parameters = settings["ampliseq"]["targets"]["CytB"]
+            original = parameters.get("sintax_cutoff")
+            parameters["sintax_cutoff"] = 0.9
+            pipeline_path.write_text(run_pipeline.yaml.safe_dump(settings))
+            demux, targets = fingerprints()
+            self.assertEqual(demux, baseline_demux)
+            self.assertEqual(targets["COI"], baseline_targets["COI"])
+            self.assertNotEqual(targets["CytB"], baseline_targets["CytB"])
+            if original is None:
+                del parameters["sintax_cutoff"]
+            else:
+                parameters["sintax_cutoff"] = original
+
+            settings["threads"] += 1
+            pipeline_path.write_text(run_pipeline.yaml.safe_dump(settings))
+            demux, targets = fingerprints()
+            self.assertNotEqual(demux, baseline_demux)
+            for target in targets:
+                self.assertNotEqual(targets[target], baseline_targets[target])
+            settings["threads"] -= 1
+            pipeline_path.write_text(run_pipeline.yaml.safe_dump(settings))
+
+            mapping = barcodes / "Sanger_custom_barcode_F.tsv"
+            mapping.write_text(mapping.read_text() + "\n")
+            demux, targets = fingerprints()
+            self.assertNotEqual(demux, baseline_demux)
+            self.assertEqual(targets, baseline_targets)
+
+            (directory / "CytB.fasta").write_text(">ref\nTGCA\n")
+            _, targets = fingerprints()
+            self.assertEqual(targets["COI"], baseline_targets["COI"])
+            self.assertNotEqual(targets["CytB"], baseline_targets["CytB"])
+
     def test_demux_command(self) -> None:
         config, _ = load_config(FIXTURE / "config")
         command = demux_command(config, Path("run.fastq.gz"), Path("out"))
@@ -215,7 +318,7 @@ class CommandRestartTests(unittest.TestCase):
                 launches.clear()
                 run_ampliseq(config, args)
                 self.assertEqual(launches, ["CytB", "ITS2", "P3"])
-                for target in config["targets"]:
+                for target in config["ampliseq"]["targets"]:
                     target_dir = output_dir / "ampliseq" / target
                     self.assertTrue((target_dir / ".completion.json").exists())
                     self.assertEqual(
@@ -235,7 +338,7 @@ class CommandRestartTests(unittest.TestCase):
             run_fastq = Path(temporary) / "run.fastq.gz"
             run_fastq.write_bytes(b"raw run")
             config, _ = load_config(FIXTURE / "config")
-            config["targets"] = {"CytB": config["targets"]["CytB"]}
+            config["ampliseq"]["targets"] = {"CytB": config["ampliseq"]["targets"]["CytB"]}
             target_dir = output_dir / "ampliseq/CytB"
             reference = Path(temporary) / "reference.fasta"
             reference.write_text(">ref\nACGT\n")
@@ -462,7 +565,7 @@ class CliTests(unittest.TestCase):
             Path(argv[1]).write_text("raw run")
             target_dir = Path(temporary) / "out/ampliseq/CytB"
             config, targets = load_config(FIXTURE / "config")
-            config["targets"] = {"CytB": config["targets"]["CytB"]}
+            config["ampliseq"]["targets"] = {"CytB": config["ampliseq"]["targets"]["CytB"]}
             real_run = subprocess.run
 
             def fake_run(command, **kwargs):

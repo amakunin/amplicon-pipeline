@@ -1,14 +1,58 @@
 # Fixture-specific site settings.
 threads: 4  # Used by demultiplexing and as the ampliseq CPU limit.
-targets:
-  COI: targets/COI.yaml
-  CytB: targets/CytB.yaml
-  ITS2: targets/ITS2.yaml
-  P3: targets/P3.yaml
-
 demux:
   method: illumina
   dorado_exec: /software/sciops/external/ont-dorado/0.8.2/bin/dorado
   barcode_dir: ../../../../assets/barcodes
   front_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_F.tsv
   reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv
+
+ampliseq:
+  # Native parameters; target values replace common values, without concatenation.
+  common:
+    sequencing_type: "nanopore"
+    asv_calling: "savont"
+    sample_inference: "pooled"
+    sintax_cutoff: 0.8
+    skip_dada_taxonomy: true
+    skip_barrnap: true
+    skip_phyloseq: true
+    skip_tse: true
+    skip_qiime: true
+    skip_fastqc: true
+    skip_parquet_summary: true
+    skip_multiqc: true
+    ignore_empty_input_files: true
+    ignore_failed_filtering: true
+    ignore_failed_trimming: true
+  # Order defines sequential execution. The driver owns input and outdir.
+  targets:
+    COI:
+      primer_fwd: "RKTCAACMAATCATAAAGATATTGG"
+      primer_rev: "TAAACTTCWGGRTGWCCAAAAAATCA"
+      savont_options: "--min-read-length 600 --max-read-length 900 --single-strand"
+      sintax_ref_tax_custom: "../../../../../culicidae_ref/coidb-221216.sintax.fa.gz"
+      sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species,BOLD_bin"
+    CytB:
+      primer_fwd: "CCAACATCTCAGCATGATGAAA"
+      primer_rev: "CCTCAGAATGATATTTGTCCTCA"
+      savont_options: "--min-read-length 250 --max-read-length 500 --single-strand"
+      sintax_ref_tax_custom: "../../../../../culicidae_ref/MIDORI2_UNIQ_NUC_GB272_Cytb_SINTAX.fasta"
+      sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species"
+    ITS2:
+      primer_fwd: "TGTGAACTGCAGGACACAT"
+      primer_rev: "TATGCTTAAATTCAGGGGGT"
+      savont_options: "--min-read-length 300 --max-read-length 900 --single-strand --min-cluster-size 4"
+      sintax_ref_tax_custom: "../../../../../culicidae_ref/ITS2_PREFILTER_ARTH_SINTAX.fasta"
+      sintax_assign_taxlevels: "Kingdom,Phylum,Class,Order,Family,Genus,Species"
+    P3:
+      primer_fwd: "CAACACCATCCAATTTGATTG"
+      primer_rev: "GGAGGTTACGTCCATACAG"
+      savont_options: "--min-read-length 300 --max-read-length 500 --single-strand --min-cluster-size 4"
+      sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
+      sintax_assign_taxlevels: "Domain,Phylum,Order,Family,Genus,Subgenus,Group,Species"
+
+# QC settings will be agreed in M8; no thresholds are defined here.
+summary:
+  common: {}
+  targets: {}

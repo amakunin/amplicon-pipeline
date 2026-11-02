@@ -490,6 +490,81 @@ in M5-M6, with tests on small captured output.
 - **Review gate:** agree exact interfaces before implementation, then verify
   parameter equivalence and stage-specific invalidation.
 
+### M8c - Sequence-level QC annotations
+
+[~]
+
+- Agreed length rules: COI allows only 640, 643, 646, 649, 652, 655, 658,
+  661, 664, 667, 670 or 673 nt. P3 fixture bounds are 372-380 nt inclusive
+  (narrowed from 350-400 to exercise a failure, not a production recommendation).
+  CytB allows 298, 301, 304, 307, 310, 313 or 316 nt and uses the same
+  six-frame genetic-code-5 check as COI. Defer ITS2 rules for now.
+- COI coding check: examine shifts 0, 1 and 2 on both strands using the
+  invertebrate mitochondrial genetic code (NCBI table 5). Report all stop-free
+  strand/shift combinations; one is expected. Ignore incomplete terminal
+  codons. Mark frames with ambiguous complete codons uncertain and report
+  separately from confirmed stop-free frames. Labels for zero or multiple
+  stop-free frames remain open.
+  A lightweight genetic-code dependency is permitted if needed; not Biopython.
+- Agree ASV length bounds per target, coding checks for COI/CytB, genetic codes,
+  orientation/frame handling, partial codons and ambiguous bases. Do not reuse
+  read-filtering length limits as ASV acceptance bounds without approval.
+- Agree configuration keys under `summary.common`/`summary.targets`, annotation
+  columns and output paths before implementation. Preserve raw M7 tables.
+- Annotate each target-ASV once, retaining measurements and all applicable
+  reasons without filtering. Test approved boundaries and coding examples;
+  propose a budget-sized implementation step after definitions are agreed.
+- **Review gate:** developer approves definitions, then annotations and tests.
+- Approved standalone `scripts/qc_asvs.py` (`--asvs`, `--config-dir`,
+  `--output-dir`) and separate `asv_qc.tsv`. Raw M7 tables stay unchanged;
+  driver wiring follows review. No new dependency.
+- Configured approved length rules and `genetic_code: 5`; omitted checks are
+  not checked. Report all confirmed stop-free and uncertain frames separately,
+  with descriptive length/coding statuses rather than an acceptance flag.
+- Length failures distinguish `too_short`, `too_long` and `unexpected_length`
+  (within bounds but absent from the discrete allowed list).
+- All 35 Python 3.12 offline tests pass, including four sequence-QC tests:
+  six frames, partial/ambiguous codons, discrete/range length boundaries,
+  configuration precedence and unchanged raw fixture tables. P3 ASV
+  `0a4b74ea4eddec52` (371 nt) is `too_short`; `83ea72fd937a3d48` (373 nt)
+  passes. ITS2 remains unchecked and the fixture has no COI ASV.
+  The 307-nt CytB ASV passes length QC and has two confirmed stop-free frames
+  (`+0,+1`), reported as `multiple_stop_free_frames`, not an acceptance decision.
+  Fixture checksums, syntax, editor diagnostics and whitespace checks pass.
+
+### M8d - Assignment-level QC annotations
+
+[ ]
+
+- Agree contamination scope/comparator, minimum reads, primary ties,
+  disqualifying labels and read-count-ratio thresholds and boundary semantics.
+- Apply the agreed M8 labelling order to sample-target-ASV assignments, using
+  sequence annotations; retain original evidence, every reason and fixed
+  comparator values. No row deletion.
+- **Review gate:** approve configuration/schema and implementation scope first,
+  then verify labels and order-independent comparisons on small examples.
+
+### M8e - Sample-target interpretation
+
+[ ]
+
+- Start from every expected manifest sample-target pair. Report eligible-ASV
+  counts, primary/secondary interpretation and explicit no-call outcomes.
+- Compare eligible secondaries with the primary using supported taxonomy;
+  distinguish disagreement from insufficient resolution and retain each
+  comparison when several lineages occur.
+- **Review gate:** approve outcome definitions, taxonomy rules and table schema,
+  then implementation and fixture results.
+
+### M8f - Cross-target interpretation
+
+[ ]
+
+- Agree reference-taxonomy harmonisation and cross-target comparison rules
+  after sample-target interpretation; do not infer conflicts from missing ranks.
+- **Review gate:** approve rules and implementation scope before coding, then
+  review integrated sample summaries before M9.
+
 ## M9 - Read-count accounting
 
 [ ]

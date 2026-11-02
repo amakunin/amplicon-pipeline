@@ -33,7 +33,10 @@ ampliseq:
       decontam: "none"
       sintax_ref_taxonomy: "coidb"
 
-# QC settings will be agreed in M8; no thresholds are defined here.
+# Sequence QC only; omitted checks are not performed.
 summary:
   common: {}
-  targets: {}
+  targets:
+    COI:
+      allowed_lengths: [640, 643, 646, 649, 652, 655, 658, 661, 664, 667, 670, 673]
+      genetic_code: 5

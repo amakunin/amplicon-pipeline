@@ -94,7 +94,7 @@ Copy [config/example/](config/example/) to a run-specific directory and edit:
 
 - [pipeline.yaml](config/example/pipeline.yaml): shared `threads`, `demux`
   settings, native ampliseq parameters under `ampliseq.common` and
-  `ampliseq.targets`, and reserved `summary.common`/`summary.targets` sections.
+  `ampliseq.targets`, and QC settings under `summary.common`/`summary.targets`.
   Target values replace common values by parameter name, including entire
   option strings and lists; they are not concatenated or recursively merged.
   `ampliseq.targets` defines targets and execution order. The pipeline sets
@@ -105,8 +105,7 @@ Copy [config/example/](config/example/) to a run-specific directory and edit:
 Relative paths in the configuration resolve against the configuration
 directory, so update the example barcode paths if you copy it elsewhere.
 Separate target YAML files and the old top-level `targets` layout are no longer
-supported. Summary sections are empty placeholders until QC settings are agreed;
-they are not passed to ampliseq.
+supported. Summary settings are not passed to ampliseq.
 Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 [provenance notes](assets/barcodes/README.md).
 
@@ -184,6 +183,42 @@ rows; both output files always have headers. Missing tables, duplicate IDs and
 inconsistent IDs fail rather than silently dropping evidence. All inputs are
 parsed before replacing the two summary files. No QC, filtering, ratios or
 taxonomy normalization are applied; absent assignments are not sample outcomes.
+
+### Sequence QC
+
+Sequence QC is currently standalone; the driver does not run it yet:
+
+```bash
+python scripts/qc_asvs.py --asvs output_dir/summary/asvs.tsv \
+    --config-dir config_dir --output-dir output_dir/summary
+```
+
+`summary.common` and `summary.targets` merge by key, with target values winning.
+`allowed_lengths` specifies discrete ASV lengths; `min_length`/`max_length`
+specify inclusive bounds. If combined, all length checks must pass. Omitted
+checks are `not_checked`. COI uses the approved discrete lengths; P3 uses
+372-380 nt in the fixture to exercise a length failure, not as a production
+recommendation. The fixture also checks CytB lengths 298, 301, 304, 307, 310, 313
+and 316 nt with genetic code 5; ITS2 checks are deferred.
+Length status is `too_short` or `too_long` outside the effective bounds,
+`unexpected_length` for a gap in the allowed-length list, or `pass`.
+Discrete lists supply their own minimum/maximum bounds; contradictory bounds
+raise an error.
+
+`genetic_code: 5` enables six-frame stop checking with the invertebrate
+mitochondrial code (TAA/TAG stops; TGA is not a stop). Other codes are unsupported.
+Shifts 0/1/2 are measured from each oriented sequence's start. Incomplete terminal
+codons are ignored; ambiguous complete codons make a frame uncertain unless a
+definite stop excludes it.
+
+`asv_qc.tsv` contains `target`, `asv_id`, measured `length`, `length_status`,
+`stop_free_frames`, `uncertain_frames` and `coding_status`. Frame lists use
+comma-separated strand/shift identifiers such as `+0,-2`. Coding status is
+`not_checked`, `no_stop_free_frame`, `one_stop_free_frame`,
+`multiple_stop_free_frames`, or `uncertain` if any candidate frame is uncertain.
+All confirmed stop-free frames remain listed even when other frames are uncertain.
+These are evidence annotations, not acceptance decisions; raw M7 tables remain
+unchanged and no ASVs are removed.
 
 ### Restart handling
 

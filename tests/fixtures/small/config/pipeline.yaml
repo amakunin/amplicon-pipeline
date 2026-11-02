@@ -52,7 +52,16 @@ ampliseq:
       sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
       sintax_assign_taxlevels: "Domain,Phylum,Order,Family,Genus,Subgenus,Group,Species"
 
-# QC settings will be agreed in M8; no thresholds are defined here.
+# Sequence QC only; omitted checks are not performed.
 summary:
   common: {}
-  targets: {}
+  targets:
+    COI:
+      allowed_lengths: [640, 643, 646, 649, 652, 655, 658, 661, 664, 667, 670, 673]
+      genetic_code: 5
+    CytB:
+      allowed_lengths: [298, 301, 304, 307, 310, 313, 316]
+      genetic_code: 5
+    P3:
+      min_length: 372
+      max_length: 380

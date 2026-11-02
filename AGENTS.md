@@ -80,8 +80,13 @@ The demux scripts and `prepare_inputs.py` are implemented (demux contract in
   Distinguish no reads, preprocessing loss, no ASVs, unresolved taxonomy, QC
   rejection and processing failure. Keep raw counts and classifications next
   to acceptance flags and reasons.
-- **Restart handling** validates completion records and relevant inputs and
-  config, not just whether output files exist.
+- **Restart handling** uses SHA-256 fingerprints of relevant source inputs,
+  configuration, barcode/reference resources and generated stage inputs.
+  Completion records also fingerprint published files by relative path; skip
+  only when both inputs and outputs match. Demux fails without changing an
+  existing incomplete or stale output directory. Ampliseq reruns in its stable
+  directory with Nextflow `-resume` when its record is missing or stale. Write
+  records atomically only after success.
 - **Never delete previous results** automatically, including on failed or
   changed runs.
 - **Missing samples are reported**, never silently treated as success.
@@ -115,6 +120,11 @@ bash -n scripts/demux_hybrid.sh scripts/demux_illumina.sh
 - Keep tests few and readable: one test file per feature, the happy path on the
   fixture, and a failure case only where a mistake would be silent or costly.
   No test-helper modules or exhaustive error matrices unless requested.
+- Keep driver tests together in `tests/test_scaffold.py`, grouped into
+  `ConfigManifestTests`, `CommandRestartTests` and `CliTests`. Add new driver
+  tests to the relevant class; keep setup and mocks local to each test.
+  Stage-specific tests stay in their own feature files, such as
+  `tests/test_prepare_inputs.py`.
 - Tests must not require Dorado, Nextflow, containers or network access.
   Integration runs against the fixture are manual and recorded in the
   milestone notes.

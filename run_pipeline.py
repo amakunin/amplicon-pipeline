@@ -164,6 +164,14 @@ def ampliseq_command(
     ]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def file_fingerprints(paths: list[Path]) -> dict[str, str]:
     return {
         str(path.resolve()): sha256_file(path)
@@ -172,27 +180,31 @@ def file_fingerprints(paths: list[Path]) -> dict[str, str]:
 
 
 def output_fingerprints(directory: Path) -> dict[str, Any]:
-    files = (
-        {
+    exists = directory.is_dir()
+    files = {}
+    if exists:
+        files = {
             str(path.relative_to(directory)): sha256_file(path)
             for path in sorted(directory.rglob("*"))
             if path.is_file()
         }
-        if directory.is_dir()
-        else {}
-    )
+    return {"exists": exists, "files": files}
+
+
+def write_completion_record(path: Path, record: dict[str, Any]) -> None:
+    temporary_path = path.with_name(f"{path.name}.tmp")
+    temporary_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    temporary_path.replace(path)
+
+
+def completion_record(
+    fingerprints: dict[str, str], output_dir: Path
+) -> dict[str, Any]:
     return {
-        "exists": directory.is_dir(),
-        "files": files,
+        "fingerprints": fingerprints,
+        "outputs": output_fingerprints(output_dir),
+        "status": "complete",
     }
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def demux_fingerprints(
@@ -265,14 +277,7 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     subprocess.run(command, check=True)
     if not demux_dir.is_dir():
         raise FileNotFoundError(demux_dir)
-    write_completion_record(
-        record_path,
-        {
-            "fingerprints": fingerprints,
-            "outputs": output_fingerprints(demux_dir),
-            "status": "complete",
-        },
-    )
+    write_completion_record(record_path, completion_record(fingerprints, demux_dir))
 
 
 def target_fingerprints(
@@ -310,12 +315,6 @@ def target_fingerprints(
     return fingerprints
 
 
-def write_completion_record(path: Path, record: dict[str, Any]) -> None:
-    temporary_path = path.with_name(f"{path.name}.tmp")
-    temporary_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    temporary_path.replace(path)
-
-
 def run_ampliseq(
     config: dict[str, Any],
     args: argparse.Namespace,
@@ -338,11 +337,7 @@ def run_ampliseq(
         write_resource_config(target_dir, config["threads"])
         fingerprints = target_fingerprints(args, config, target, target_dir)
         record_path = target_dir / ".completion.json"
-        expected_record = {
-            "fingerprints": fingerprints,
-            "outputs": output_fingerprints(target_dir / "results"),
-            "status": "complete",
-        }
+        expected_record = completion_record(fingerprints, target_dir / "results")
         if (
             record_path.exists()
             and json.loads(record_path.read_text()) == expected_record
@@ -358,12 +353,7 @@ def run_ampliseq(
         if not results_dir.is_dir():
             raise FileNotFoundError(results_dir)
         write_completion_record(
-            record_path,
-            {
-                "fingerprints": fingerprints,
-                "outputs": output_fingerprints(results_dir),
-                "status": "complete",
-            },
+            record_path, completion_record(fingerprints, results_dir)
         )
 
 

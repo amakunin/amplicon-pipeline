@@ -1,4 +1,4 @@
-"""Smoke tests for the scaffold, not for analysis behaviour."""
+"""Driver configuration, command/restart and CLI tests without external tools."""
 
 import gzip
 from pathlib import Path
@@ -27,7 +27,7 @@ from run_pipeline import (
 )
 
 
-class ScaffoldTests(unittest.TestCase):
+class ConfigManifestTests(unittest.TestCase):
     def test_load_fixture_config(self) -> None:
         config, targets = load_config(FIXTURE / "config")
         self.assertEqual(config["demux"]["method"], "hybrid")
@@ -103,35 +103,8 @@ class ScaffoldTests(unittest.TestCase):
             ):
                 read_manifest(manifest_path, config)
 
-    def test_help(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        for argument in (
-            "run_fastq_gz",
-            "manifest_tsv",
-            "config_dir",
-            "output_dir",
-            "--profile",
-            "--dry-run",
-        ):
-            self.assertIn(argument, result.stdout)
-        self.assertIn("later", result.stdout)
 
-    def test_missing_arguments(self) -> None:
-        result = subprocess.run(
-            [sys.executable, str(ROOT / "run_pipeline.py")],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("required", result.stderr)
-
+class CommandRestartTests(unittest.TestCase):
     def test_demux_command(self) -> None:
         config, _ = load_config(FIXTURE / "config")
         command = demux_command(config, Path("run.fastq.gz"), Path("out"))
@@ -317,6 +290,7 @@ class ScaffoldTests(unittest.TestCase):
                 ):
                     run_demux(config, args)
                 self.assertEqual(len(calls), 1)
+
     def test_demux_failure_does_not_write_completion_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary) / "output"
@@ -366,6 +340,37 @@ class ScaffoldTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(SystemExit, "not found"):
                 check_nextflow()
+
+
+class CliTests(unittest.TestCase):
+    def test_help(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for argument in (
+            "run_fastq_gz",
+            "manifest_tsv",
+            "config_dir",
+            "output_dir",
+            "--profile",
+            "--dry-run",
+        ):
+            self.assertIn(argument, result.stdout)
+        self.assertIn("later", result.stdout)
+
+    def test_missing_arguments(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "run_pipeline.py")],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("required", result.stderr)
 
     def test_execution_runs_demux_then_ampliseq_then_stops(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

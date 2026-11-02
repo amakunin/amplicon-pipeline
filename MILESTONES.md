@@ -207,7 +207,7 @@ and ready to be called from the pipeline on the small mixed-target fixture.
 
 ## M5 - Single-target ampliseq execution
 
-[ ]
+[x]
 
 **Goal:** one target goes from raw FASTQ to published ampliseq results.
 
@@ -293,7 +293,7 @@ verified, and failures stop the run with a clear message.
   directory.
 - **Review gate:** developer approves rerun behaviour.
 
-### M5e - Review demux resume logic [ ]
+### M5e - Review demux resume logic [x]
 - Driver-owned `.demux-completion.json` stores fingerprints for the run,
   manifest, demux config, selected barcode mappings/resources and demux script,
   plus the generated output-file fingerprints.
@@ -301,10 +301,13 @@ verified, and failures stop the run with a clear message.
   If the output directory exists but is incomplete, stale or has no record,
   fail clearly without changing or deleting it. If the output directory is
   absent, run demux; write the record only after success.
-- **Review gate:** developer manually runs the fixture, removes selected
-  outputs from demux and ampliseq stages, reruns the pipeline, and checks that
-  intact stages skip, incomplete demux fails safely, and missing ampliseq
-  outputs trigger Nextflow `-resume`. Developer approves demux rerun behaviour.
+- Refactoring complete: shared completion-record construction; driver tests
+  grouped into configuration/manifest, command/restart and CLI classes in
+  one file. Restart policy and test architecture documented in AGENTS.md.
+  All 24 tests pass under Python 3.12; test bodies unchanged.
+- Manual review passed (2026-11-02): developer removed selected demux and
+  ampliseq outputs and confirmed the expected skip, safe-failure and resume
+  behaviour.
 
 ## M6 - Multi-target ampliseq execution
 
@@ -326,6 +329,34 @@ state, with empty or failed sample/target outcomes accounted for.
 
 **Review gate:** developer inspects multi-target results and published Savont
 outputs before summary schemas are defined.
+
+### M6a - Align target configurations [ ]
+- Update the existing small fixture config to enable COI, CytB, ITS2 and P3
+  in alphabetical order; use developer-supplied P3 parameters.
+- Arrange example and fixture target YAML sections consistently: input,
+  primers, ASV, SINTAX, skips, ignores. Add brief section annotations; the
+  input section documents driver-owned `input`/`outdir` and sets
+  `sequencing_type`.
+- Preserve scientific parameter values; remove ITS2's explicit `input` and
+  duplicate skip keys.
+- **Review gate:** developer approves the four target configs and annotations.
+
+### M6b - Verify sequential multi-target execution [ ]
+- Keep target runs sequential for the local executor, in configured order,
+  with separate execution directories and completion records.
+- Extend `CommandRestartTests` to check target order, independent state and
+  stopping before the next target after failure. Update fixture expectations
+  for the four configured targets; no parallel execution or new options.
+- **Review gate:** developer approves orchestration and tests.
+
+### M6c - Validate the four-target fixture [ ]
+- Developer runs COI, CytB, ITS2 and P3 and records published outputs,
+  per-target exclusions and rerun behaviour.
+- COI is expected to yield no ASVs; compare CytB with M5c. At least one ITS2
+  sequence is hoped for, not an acceptance threshold. Agree P3 expectations
+  with its configuration; do not tune parameters merely to force success.
+- **Review gate:** developer approves observed outcomes and Savont output
+  layouts before M7 summary schemas are defined.
 
 ## M7 - ASV summaries
 

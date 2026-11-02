@@ -1,0 +1,17 @@
+input: "samplesheet.tsv"
+primer_fwd: "CAACACCATCCAATTTGATTG"
+primer_rev: "GGAGGTTACGTCCATACAG"
+outdir: "./results_p3"
+ignore_empty_input_files: True
+ignore_failed_filtering: True
+ignore_failed_trimming: True
+sequencing_type: "nanopore"
+asv_calling: "savont"
+sample_inference: "pooled"
+savont_options: "--min-read-length 300 --max-read-length 500"
+skip_dada_taxonomy: True
+skip_barrnap: True
+sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
+sintax_assign_taxlevels: "Domain,Phylum,Class,Order,Family,Genus,Species,Strain"
+skip_phyloseq: True
+skip_tse: True

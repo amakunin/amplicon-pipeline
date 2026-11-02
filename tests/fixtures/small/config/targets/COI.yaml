@@ -9,6 +9,7 @@ decontam: "none"
 
 sintax_ref_taxonomy: "coidb"
 sintax_cutoff: 0.8
+
 skip_dada_taxonomy: true
 skip_barrnap: true
 skip_phyloseq: true
@@ -16,6 +17,7 @@ skip_tse: true
 skip_qiime: true
 skip_fastqc: True
 skip_parquet_summary: True
+
 ignore_empty_input_files: true
 ignore_failed_filtering: true
 ignore_failed_trimming: true

@@ -16,15 +16,12 @@ and a sample manifest, it will:
 
 ## Requirements
 
-Not all of these are used yet; they are what the finished pipeline will need.
-
-- Python 3.12 (the scaffold uses the standard library only)
+- Python 3.12, PyYAML and [seqtk](https://github.com/lh3/seqtk)
+  (provided by the project Conda environment)
 - [Nextflow](https://www.nextflow.io/) 26 or higher (required by ampliseq 3.0.0; checked before the run starts) and a container runtime (Docker,
   Singularity or Apptainer)
-- [Dorado](https://github.com/nanoporetech/dorado) 0.8.2 and
-  [seqtk](https://github.com/lh3/seqtk)
-- A SINTAX reference database for each target (for COI, MIDORI2 or the
-  ampliseq built-in `coidb`)
+- [Dorado](https://github.com/nanoporetech/dorado) 0.8.2 (installed separately)
+- A SINTAX reference database for each target
 - Optionally an LSF cluster (`--profile lsf`)
 
 ## Installation
@@ -38,41 +35,16 @@ python run_pipeline.py --help
 ```
 
 The single development and driver environment in [env.yaml](env.yaml) provides
-Python 3.12 and seqtk. Tests use the standard library, so no separate test
+Python 3.12, PyYAML and seqtk 1.4. No separate test
 dependencies are needed. Update an existing environment after dependency changes
 with `conda env update --name amplicon-pipeline --file env.yaml`.
 
-Nextflow, its Java runtime, Singularity/Apptainer (or Docker), and Dorado 0.8.2
-remain external tools supplied by your installation. Make the launcher and
+The project Conda environment does not supply Nextflow, its Java runtime,
+Singularity/Apptainer (or Docker), or Dorado 0.8.2; install these separately.
+Make the Nextflow launcher and
 container runtime available in the execution shell. Dorado is found through
 `demux.dorado_exec` in your run configuration, or on `PATH` if unset; seqtk
-always comes from the activated environment's `PATH`. The environment alone
-does not make the scaffold an executable analysis pipeline.
-
-### Using the environment with a coding agent
-
-Selecting the environment with VS Code's **Python: Select Interpreter** command
-configures Python editor tooling, but does not guarantee activation for agent
-shell commands. Activating it in a separate terminal is also not sufficient.
-After creating it, obtain its prefix and your Conda executable path:
-
-```bash
-conda env list
-conda info --base
-```
-
-Give the agent the environment prefix and the absolute Conda executable path
-(normally `bin/conda` under the Conda base directory). The agent can then run
-each command explicitly, without relying on activation persisting between
-shell calls:
-
-```bash
-/path/to/conda/bin/conda run --no-capture-output -p /path/to/env \
-    python -m unittest discover -s tests -v
-```
-
-Run commands from the pipeline root. Keep machine-specific executable paths and
-environment prefixes out of committed configuration and documentation.
+always comes from the activated environment's `PATH`.
 
 ## Usage
 

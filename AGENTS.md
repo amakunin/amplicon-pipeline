@@ -46,6 +46,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `scripts/demux_hybrid.sh` | Dorado hybrid ONT and R Illumina demultiplexing |
 | `scripts/prepare_inputs.py` | Per-target ampliseq samplesheet, excluded-sample list and parameter file |
 | `scripts/summarise_asvs.py` | Savont counts, sequences and taxonomy into stable tables |
+| `scripts/qc_asvs.py` | Standalone target-ASV length and six-frame coding annotations |
 | `scripts/summarise_samples.py` | Manifest-driven sample annotations and QC outcomes |
 | `scripts/plot_summary.py` | Plots from summary tables |
 | `config/example/` | Template configuration for users to copy |
@@ -54,23 +55,25 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `tests/fixtures/small/` | Small mixed-target fixture; see its README |
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
-The demux scripts and `prepare_inputs.py` are implemented (demux contract in
-`scripts/README.md`); the other stage scripts are currently placeholders.
+Demux, input preparation and ASV aggregation are implemented (demux contract in
+`scripts/README.md`). Sequence QC is standalone, not yet driver-wired.
+Sample summaries and plotting remain placeholders.
 
 ## Design decisions
 
 - **Fixed pipeline.** Stages run in a fixed order:
   `validate -> demultiplex -> prepare inputs -> ampliseq per target -> summarise ASVs -> summarise samples -> plot`.
   No module registry, configurable DAG or plugin framework.
-- **Tool provisioning.** The conda environment provides every tool except
-  Dorado (including `seqtk`, taken from `PATH`; no config key). Dorado is
-  set by `demux.dorado_exec`, else taken from `PATH`.
+- **Tool provisioning.** The Conda environment provides Python 3.12, PyYAML
+  and `seqtk` (taken from `PATH`; no config key). Nextflow, Java, the container
+  runtime and Dorado are installed separately. Dorado is set by
+  `demux.dorado_exec`, else taken from `PATH`.
 - **Ampliseq** is called directly by the driver, once per target, pinned to
   version 3.0.0, from a stable per-target execution directory. Both the
   Nextflow cache and `work/` are kept for `-resume`.
 - **Configuration.** Relative resource paths resolve against the user's config
   directory. `pipeline.yaml` holds `demux`, `ampliseq.common`,
-  `ampliseq.targets` and reserved `summary.common`/`summary.targets` sections,
+  `ampliseq.targets` and QC settings in `summary.common`/`summary.targets`,
   plus shared `threads`. Ampliseq targets define execution order and override
   common native parameters by key, without recursive merging or concatenation.
   The driver owns `input` and `outdir` and writes resolved per-target parameter
@@ -84,12 +87,15 @@ The demux scripts and `prepare_inputs.py` are implemented (demux contract in
   rejection and processing failure. Keep raw counts and classifications next
   to acceptance flags and reasons.
 - **Restart handling** uses SHA-256 fingerprints of relevant source inputs,
-  configuration, barcode/reference resources and generated stage inputs.
+  stage-specific effective configuration, barcode/reference resources and
+  generated stage inputs. Unrelated configuration changes do not invalidate
+  upstream stages.
   Completion records also fingerprint published files by relative path; skip
   only when both inputs and outputs match. Demux fails without changing an
   existing incomplete or stale output directory. Ampliseq reruns in its stable
   directory with Nextflow `-resume` when its record is missing or stale. Write
-  records atomically only after success.
+  records atomically only after success. ASV aggregation always regenerates
+  its tables and provenance log, including when ampliseq targets are skipped.
 - **Never delete previous results** automatically, including on failed or
   changed runs.
 - **Missing samples are reported**, never silently treated as success.
@@ -112,6 +118,31 @@ The demux scripts and `prepare_inputs.py` are implemented (demux contract in
 - Prefer clear, boring code over abstractions. Comment only what needs it.
 - Keep large or external data out of the repository. The SINTAX reference
   (about 1.6 GB) and real run data are referenced by path, not committed.
+
+## Using the environment with a coding agent
+
+Selecting the environment with VS Code's **Python: Select Interpreter** command
+configures Python editor tooling, but does not guarantee activation for agent
+shell commands. Activating it in a separate terminal is also not sufficient.
+After creating it, obtain its prefix and your Conda executable path:
+
+```bash
+conda env list
+conda info --base
+```
+
+Give the agent the environment prefix and the absolute Conda executable path
+(normally `bin/conda` under the Conda base directory). The agent can then run
+each command explicitly, without relying on activation persisting between
+shell calls:
+
+```bash
+/path/to/conda/bin/conda run --no-capture-output -p /path/to/env \
+    python -m unittest discover -s tests -v
+```
+
+Run commands from the pipeline root. Keep machine-specific executable paths and
+environment prefixes out of committed configuration and documentation.
 
 ## Testing
 

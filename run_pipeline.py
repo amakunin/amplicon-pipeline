@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -113,7 +114,8 @@ def read_manifest(
 
 
 def demux_command(
-    config: dict[str, Any], run_fastq: Path, output_dir: Path
+    config: dict[str, Any], run_fastq: Path, output_dir: Path,
+    keep_intermediates: bool = False,
 ) -> list[str]:
     demux = config["demux"]
     command = [
@@ -126,6 +128,8 @@ def demux_command(
     ]
     if demux.get("dorado_exec"):
         command += ["--dorado", str(demux["dorado_exec"])]
+    if keep_intermediates:
+        command.append("--keep-intermediates")
     return command
 
 
@@ -151,12 +155,14 @@ def write_resource_config(target_dir: Path, threads: int) -> Path:
 
 
 def ampliseq_command(
-    config_dir: Path, target_dir: Path, profile: str
+    config_dir: Path, target_dir: Path, profile: str,
+    keep_intermediates: bool = False,
 ) -> list[str]:
     return [
         "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
-        "-resume",
+        *(["-resume"] if keep_intermediates else []),
         "-profile", profile,
+        "-work-dir", str(target_dir.resolve() / "work"),
         "-c", str(config_dir.resolve() / "ampliseq.config"),
         "-c", str(target_dir / "resources.config"),
         "-params-file", str(target_dir / "params.yaml"),
@@ -178,14 +184,17 @@ def file_fingerprints(paths: list[Path]) -> dict[str, str]:
     }
 
 
-def output_fingerprints(directory: Path) -> dict[str, Any]:
+def output_fingerprints(
+    directory: Path, exclude_work: bool = False,
+) -> dict[str, Any]:
     exists = directory.is_dir()
     files = {}
     if exists:
         files = {
             str(path.relative_to(directory)): sha256_file(path)
             for path in sorted(directory.rglob("*"))
-            if path.is_file()
+            if not (exclude_work and path.relative_to(directory).parts[0] == "work")
+            and path.is_file()
         }
     return {"exists": exists, "files": files}
 
@@ -197,11 +206,11 @@ def write_completion_record(path: Path, record: dict[str, Any]) -> None:
 
 
 def completion_record(
-    fingerprints: dict[str, str], output_dir: Path
+    fingerprints: dict[str, str], output_dir: Path, exclude_work: bool = False,
 ) -> dict[str, Any]:
     return {
         "fingerprints": fingerprints,
-        "outputs": output_fingerprints(output_dir),
+        "outputs": output_fingerprints(output_dir, exclude_work),
         "status": "complete",
     }
 
@@ -249,7 +258,9 @@ def demux_fingerprints(
 
 
 def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
-    command = demux_command(config, args.run_fastq_gz, args.output_dir)
+    command = demux_command(
+        config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
+    )
     demux_dir = args.output_dir.resolve() / "demux"
     record_path = args.output_dir.resolve() / ".demux-completion.json"
     fingerprints = demux_fingerprints(config, args, command)
@@ -261,7 +272,7 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
                 f"refusing to overwrite: {demux_dir}"
             )
         record = json.loads(record_path.read_text())
-        outputs = output_fingerprints(demux_dir)
+        outputs = output_fingerprints(demux_dir, exclude_work=True)
         if (
             record.get("status") == "complete"
             and record.get("fingerprints") == fingerprints
@@ -281,7 +292,9 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     subprocess.run(command, check=True)
     if not demux_dir.is_dir():
         raise FileNotFoundError(demux_dir)
-    write_completion_record(record_path, completion_record(fingerprints, demux_dir))
+    write_completion_record(
+        record_path, completion_record(fingerprints, demux_dir, exclude_work=True),
+    )
 
 
 def preprocess_command(args: argparse.Namespace) -> list[str]:
@@ -292,6 +305,7 @@ def preprocess_command(args: argparse.Namespace) -> list[str]:
         "--config-dir", str(args.config_dir.resolve()),
         "--demux-dir", str(args.output_dir.resolve() / "demux"),
         "--output-dir", str(args.output_dir.resolve() / "preprocessed"),
+        *(["--keep-intermediates"] if args.keep_intermediates else []),
     ]
 
 
@@ -324,7 +338,7 @@ def preprocess_fingerprints(
     for key, value in (
         ("config", effective_config),
         ("command", command),
-        ("demux", output_fingerprints(demux_dir)),
+        ("demux", output_fingerprints(demux_dir, exclude_work=True)),
     ):
         fingerprints[f"runtime:preprocess-{key}"] = hashlib.sha256(
             json.dumps(value, sort_keys=True).encode()
@@ -341,7 +355,7 @@ def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
         if (
             record_path.exists()
             and json.loads(record_path.read_text())
-            == completion_record(fingerprints, output_dir)
+            == completion_record(fingerprints, output_dir, exclude_work=True)
         ):
             print("Skipping preprocessing: completion record matches")
             return
@@ -352,7 +366,9 @@ def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
     subprocess.run(command, check=True)
     if not output_dir.is_dir():
         raise FileNotFoundError(output_dir)
-    write_completion_record(record_path, completion_record(fingerprints, output_dir))
+    write_completion_record(
+        record_path, completion_record(fingerprints, output_dir, exclude_work=True),
+    )
 
 
 def target_fingerprints(
@@ -386,13 +402,35 @@ def target_fingerprints(
     ).hexdigest()
     fingerprints["runtime:ampliseq-command"] = hashlib.sha256(
         json.dumps(
-            ampliseq_command(args.config_dir, target_dir, args.profile)
+            ampliseq_command(
+                args.config_dir, target_dir, args.profile, args.keep_intermediates,
+            )
         ).encode()
     ).hexdigest()
     fingerprints["runtime:profile"] = hashlib.sha256(
         args.profile.encode()
     ).hexdigest()
     return fingerprints
+
+
+def cleanup_ampliseq_work(target_dir: Path) -> None:
+    target_dir = target_dir.resolve()
+    directories = [target_dir / "work", target_dir / ".nextflow/cache"]
+    for directory in directories:
+        if directory.is_symlink() or directory.resolve() != directory:
+            raise ValueError(f"Refusing cleanup through a symlink: {directory}")
+    results = target_dir / "results"
+    for path in (results, *results.rglob("*")):
+        if path.is_symlink() and any(
+            path.resolve().is_relative_to(directory) for directory in directories
+        ):
+            raise ValueError(
+                f"Published output depends on intermediates: {path}; "
+                "use copy publication or --keep-intermediates"
+            )
+    for directory in directories:
+        if directory.exists():
+            shutil.rmtree(directory)
 
 
 def run_ampliseq(
@@ -425,13 +463,17 @@ def run_ampliseq(
             print(f"Skipping ampliseq for {target}: completion record matches")
             continue
         subprocess.run(
-            ampliseq_command(args.config_dir, target_dir, args.profile),
+            ampliseq_command(
+                args.config_dir, target_dir, args.profile, args.keep_intermediates,
+            ),
             cwd=target_dir,
             check=True,
         )
         results_dir = target_dir / "results"
         if not results_dir.is_dir():
             raise FileNotFoundError(results_dir)
+        if not args.keep_intermediates:
+            cleanup_ampliseq_work(target_dir)
         write_completion_record(
             record_path, completion_record(fingerprints, results_dir)
         )
@@ -480,6 +522,10 @@ def main() -> None:
         help="Nextflow profile from ampliseq.config (default: local)",
     )
     parser.add_argument(
+        "--keep-intermediates", action="store_true",
+        help="Retain stage work and Nextflow cache after success; enable Nextflow resume",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the loaded plan without creating outputs or running analysis",
@@ -487,7 +533,9 @@ def main() -> None:
     args = parser.parse_args()
     config, _ = load_config(args.config_dir)
     samples = read_manifest(args.manifest_tsv, config)
-    command = demux_command(config, args.run_fastq_gz, args.output_dir)
+    command = demux_command(
+        config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
+    )
     summary_command = asv_summary_command(config, args.output_dir)
     if args.dry_run:
         print_plan(config, samples)
@@ -495,7 +543,9 @@ def main() -> None:
         print(f"Preprocess command: {shlex.join(preprocess_command(args))}")
         for target in config["ampliseq"]["targets"]:
             target_dir = args.output_dir.resolve() / "ampliseq" / target
-            ampliseq = ampliseq_command(args.config_dir, target_dir, args.profile)
+            ampliseq = ampliseq_command(
+                args.config_dir, target_dir, args.profile, args.keep_intermediates,
+            )
             print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")
         print(f"ASV summary command: {shlex.join(summary_command)}")
         return

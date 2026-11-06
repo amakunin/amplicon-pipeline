@@ -35,7 +35,7 @@ for end in F R; do
 done
 [ ! -e "$outdir" ] || { echo "Output directory exists, terminating: $outdir" >&2; exit 1; }
 
-work="$outdir/.work"
+work="$outdir/work"
 mkdir -p "$work"
 
 # Sanger demux of one FASTQ into a directory; $3 is F or R

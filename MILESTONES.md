@@ -582,37 +582,58 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 
 ### M9d - Fixture validation
 
-[~]
+[x]
 
-- Developer runs Dorado and ampliseq; agents inspect supplied outputs only.
-- Illumina is the primary end-to-end record: use a fresh output directory,
-  run all four targets, retain terminal output, demux/preprocessed FASTQs,
-  exclusions, resolved parameters, completion records, Nextflow logs,
-  published results and summary tables. Verify compressed FASTQ integrity,
-  expected sample accounting and shared per-target input paths.
-- Repeat the Illumina command unchanged: demux, preprocessing and completed
-  targets skip; ASV tables and provenance log regenerate. The explicit exit
-  after ASV aggregation remains expected until later stages are implemented.
-- Hybrid smoke check uses a separate directory: developer runs hybrid demux
-  and standalone preprocessing; verify readable compressed FASTQs and expected
-  sample/exclusion handling. No duplicate four-target ampliseq run is required.
-- Record observed counts and outcomes without requiring historical ASV/count
-  equality. Do not regenerate, overwrite or replace frozen fixture data.
-- Initial `results/m9d_illumina` inspection: demux counts match M7a, processed
-  FASTQs are valid, target inputs are shared and completion fingerprints match.
-  CytB changes from 162 assigned reads in two samples to 15 in one; ITS2 and
-  P3 retain their ASVs and 20/35 assigned reads; COI remains empty.
-- This run is not a preprocessing-equivalence test: the script forced `-abi`
-  and Chopper used default quality 0; historical ampliseq commands omitted
-  `-abi` and used `-q 16`. Developer requested matching historical behavior:
-  remove forced inference and configure `-q 16` in example and fixture.
-- Final capture waits for M9e work-directory handling and a developer rerun
-  with aligned options. Existing run and frozen captures remain unchanged.
-- **Review gate:** developer approves the observed preprocessing outputs.
+- Developer ran Dorado and ampliseq; agents inspected outputs.
+  Initial option differences were corrected: no forced `-abi`, Chopper `-q 16`.
+- Illumina `results/m9d_illumina_concordance_retry` matches historical
+  preprocessing records exactly apart from order (119/314/208 reads).
+  All shared target read counts, ASV sequences, sample assignments and
+  processed/raw taxonomy match: COI 0, CytB 162, ITS2 20, P3 35 assigned reads.
+  FASTQ integrity, shared target inputs and completion/output checks pass;
+  the exit after aggregation is expected.
+- Hybrid `results/m9d_hybrid` accounts for all 931 raw read IDs exactly once.
+  Demux -> processed counts: ANLCx_002_A12 212 -> 184,
+  BFHK_023_A2 403 -> 356, BFHK_023_H8 316 -> 269.
+  FASTQs are valid; both absent samples are explicitly excluded.
+  Demux work was retained; preprocessing work was cleaned after success.
+  No hybrid ampliseq run was required.
+- Developer approved closure. Existing runs and frozen captures are unchanged;
+  capture updates and unchanged-run skip verification carry into M9e.
 
 ### M9e - Intermediate directories and retention
 
-[ ]
+[~]
+
+- Standalone preprocessing uses `preprocessed/work/<barcode-pair>/` for the
+  Porechop FASTQ and explicitly routes `--temp_dir` to its `tmp/` child.
+  Published FASTQs remain outside work. `--keep-intermediates` retains work;
+  otherwise the stage removes work only after all samples succeed.
+  Failures retain work.
+- Five preprocessing tests pass, covering scratch routing, success cleanup,
+  retention and Porechop/Chopper failures; CLI help and Pylance checks pass.
+- Both demux scripts now use `demux/work/`, retaining existing success-only
+  cleanup and `--keep-intermediates` behavior. Prior `.work/` outputs are
+  untouched.
+- Both scripts pass `bash -n`; a mocked-tool test verifies successful output,
+  cleanup, flagged retention and failure preservation for both demux methods.
+- Driver `--keep-intermediates` forwards to demux/preprocessing and enables
+  Nextflow `-resume` only when flagged. Demux/preprocessing completion and
+  downstream read fingerprints exclude top-level `work/`.
+  Nextflow uses explicit per-target `-work-dir`. Without the flag, successful
+  targets remove only `work/` and `.nextflow/cache/` before completion recording.
+  Failures/skips retain work; logs, results, other metadata and external caches
+  remain. Cleanup refuses symlinked scratch or published links into scratch.
+- Driver tests verify forwarding/dry-run, both resume modes, scratch-independent
+  skips and published-file change detection; Pylance signature checks pass.
+- All 24 driver tests pass after cleanup integration, including failure work
+  preservation, default cleanup, flagged retention, safe link refusal and skips.
+  Developer end-to-end validation in both modes remains pending; repeat each
+  command unchanged with separate logs before closing M9e.
+- Carry-over from M9d: verify unchanged-run stage skips and ASV-table/log
+  regeneration on a fresh developer run after retention integration.
+  The earlier Illumina record predates the preprocessing source change;
+  do not rewrite its fingerprints. Final fixture capture updates need approval.
 
 - Standardize stage-owned scratch in a step-level `work/` directory; route
   Porechop ABI temporary files there instead of the project directory.

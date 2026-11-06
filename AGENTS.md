@@ -75,7 +75,10 @@ Sample summaries and plotting remain placeholders.
   Dorado is set by `demux.dorado_exec`, else taken from `PATH`.
 - **Ampliseq** is called directly by the driver, once per target, pinned to
   version 3.0.0, from a stable per-target execution directory. Both the
-  Nextflow cache and `work/` are kept for `-resume`.
+  Nextflow `-resume` is enabled only with pipeline `--keep-intermediates`.
+  Each target owns its `work/` and `.nextflow/cache/`; without the flag they
+  are removed only after success, before completion recording. Failures retain
+  them. Logs, published results and external caches are never cleaned.
 - **Shared preprocessing.** Every target samplesheet uses `preprocessed/`
   FASTQs and preserves upstream exclusion reasons. Empty processed FASTQs
   are passed to ampliseq; configurations skip its Porechop ABI and Chopper.
@@ -102,8 +105,9 @@ Sample summaries and plotting remain placeholders.
   Completion records also fingerprint published files by relative path; skip
   only when both inputs and outputs match. Demux and preprocessing fail without
   changing an existing incomplete or stale output directory. Ampliseq reruns
-  in its stable directory with Nextflow `-resume` when its record is missing
-  or stale. Write
+  in its stable directory when its record is missing or stale, using Nextflow
+  `-resume` only with `--keep-intermediates`. Top-level demux/preprocessing
+  `work/` is excluded from output and downstream read fingerprints. Write
   records atomically only after success. ASV aggregation always regenerates
   its tables and provenance log, including when ampliseq targets are skipped.
 - **Never delete previous results** automatically, including on failed or

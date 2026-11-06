@@ -25,7 +25,7 @@ demux_*.sh --input FASTQ --output-dir DIR --barcode-dir DIR \
 | `unclassified.fastq.gz` | no first-level barcode |
 | `demux_stats.txt` | `name<TAB>read count`, sorted by name |
 
-Barcode pairs without reads have no file and no stats line. `.work/` holds
+Barcode pairs without reads have no file and no stats line. `work/` holds
 intermediates and is kept only with `--keep-intermediates` or after a failure.
 
 ## Method-specific

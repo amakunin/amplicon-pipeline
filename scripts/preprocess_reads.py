@@ -5,9 +5,9 @@ import argparse
 import csv
 import gzip
 import shlex
+import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -56,6 +56,7 @@ def preprocess_reads(
     config_dir: Path,
     demux_dir: Path,
     output_dir: Path,
+    keep_intermediates: bool = False,
 ) -> None:
     config, _ = load_config(config_dir)
     samples = read_manifest(manifest_path, config)
@@ -90,18 +91,23 @@ def preprocess_reads(
         writer.writerow(["sample_id", "reason"])
         writer.writerows(excluded)
 
+    work = output_dir / "work"
     for filename, reads in included:
         output = output_dir / filename
-        with tempfile.TemporaryDirectory() as temporary:
-            porechop_output = Path(temporary) / "porechop.fastq.gz"
-            subprocess.run(
-                [
-                    "porechop_abi", *porechop_options,
-                    "-t", threads, "-i", str(reads), "-o", str(porechop_output),
-                ],
-                check=True,
-            )
-            run_chopper(porechop_output, output, chopper_options, threads)
+        sample_work = work / filename.removesuffix(".fastq.gz")
+        sample_work.mkdir(parents=True)
+        porechop_output = sample_work / "porechop.fastq.gz"
+        subprocess.run(
+            [
+                "porechop_abi", *porechop_options,
+                "-t", threads, "-i", str(reads), "-o", str(porechop_output),
+                "--temp_dir", str(sample_work / "tmp"),
+            ],
+            check=True,
+        )
+        run_chopper(porechop_output, output, chopper_options, threads)
+    if not keep_intermediates and work.exists():
+        shutil.rmtree(work)
 
 
 def main() -> None:
@@ -110,9 +116,14 @@ def main() -> None:
     parser.add_argument("--config-dir", type=Path, required=True)
     parser.add_argument("--demux-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--keep-intermediates", action="store_true",
+        help="Retain preprocessing work after success; failures always retain work",
+    )
     args = parser.parse_args()
     preprocess_reads(
         args.manifest, args.config_dir, args.demux_dir, args.output_dir,
+        args.keep_intermediates,
     )
 
 

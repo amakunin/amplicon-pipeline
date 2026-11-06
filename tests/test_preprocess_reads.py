@@ -42,6 +42,11 @@ class PreprocessReadsTests(unittest.TestCase):
             def run(command: list[str], **kwargs: object) -> None:
                 commands.append(command)
                 path = Path(command[command.index("-o") + 1])
+                scratch = Path(command[command.index("--temp_dir") + 1])
+                self.assertEqual(scratch, path.parent / "tmp")
+                self.assertEqual(path.parent.parent, output.resolve() / "work")
+                scratch.mkdir()
+                (scratch / "tool-work.txt").write_text("scratch")
                 self.write_fastq(path, b"trimmed")
 
             def chopper(input_path, output_path, options, threads):
@@ -78,6 +83,46 @@ class PreprocessReadsTests(unittest.TestCase):
                 "BFHK_023_H8\tempty_fastq\n"
                 "ANLCx_001_A1\tno_demux_file\n",
             )
+            self.assertFalse((output / "work").exists())
+
+    def test_keep_intermediates_retains_stage_work(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demux = root / "demux"
+            demux.mkdir()
+            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", b"raw")
+            output = root / "preprocessed"
+            config = {"threads": 1, "demux": {"method": "illumina"}}
+            samples = [self.sample("ANLCx_002_A12", "02", "89")]
+
+            def run(command: list[str], **kwargs: object) -> None:
+                path = Path(command[command.index("-o") + 1])
+                self.write_fastq(path, b"trimmed")
+                scratch = Path(command[command.index("--temp_dir") + 1])
+                scratch.mkdir()
+                (scratch / "tool-work.txt").write_text("scratch")
+
+            with (
+                patch("scripts.preprocess_reads.load_config", return_value=(config, {})),
+                patch("scripts.preprocess_reads.read_manifest", return_value=samples),
+                patch("scripts.preprocess_reads.subprocess.run", side_effect=run),
+                patch("scripts.preprocess_reads.run_chopper") as chopper,
+            ):
+                preprocess_reads(root / "manifest.tsv", root, demux, output, True)
+                chopper.side_effect = subprocess.CalledProcessError(7, ["chopper"])
+                with self.assertRaises(subprocess.CalledProcessError):
+                    preprocess_reads(
+                        root / "manifest.tsv", root, demux, root / "failed",
+                    )
+            self.assertTrue(
+                (root / "failed/work/barcode02_barcode89/porechop.fastq.gz").is_file(),
+            )
+            sample_work = output / "work/barcode02_barcode89"
+            with gzip.open(sample_work / "porechop.fastq.gz", "rb") as handle:
+                self.assertEqual(handle.read(), b"trimmed")
+            self.assertEqual(
+                (sample_work / "tmp/tool-work.txt").read_text(), "scratch",
+            )
 
     def test_tool_failure_is_not_swallowed_and_existing_output_is_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -89,14 +134,24 @@ class PreprocessReadsTests(unittest.TestCase):
             config = {"threads": 1, "demux": {"method": "illumina"}}
             samples = [self.sample("ANLCx_002_A12", "02", "89")]
             failure = subprocess.CalledProcessError(1, ["porechop_abi"])
+            def run(command: list[str], **kwargs: object) -> None:
+                scratch = Path(command[command.index("--temp_dir") + 1])
+                scratch.mkdir()
+                (scratch / "failed-tool.txt").write_text("diagnostics")
+                raise failure
+
             with (
                 patch("scripts.preprocess_reads.load_config", return_value=(config, {})),
                 patch("scripts.preprocess_reads.read_manifest", return_value=samples),
-                patch("scripts.preprocess_reads.subprocess.run", side_effect=failure),
+                patch("scripts.preprocess_reads.subprocess.run", side_effect=run),
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
                     preprocess_reads(root / "manifest.tsv", root, demux, output)
             self.assertTrue(output.is_dir())
+            self.assertEqual(
+                (output / "work/barcode02_barcode89/tmp/failed-tool.txt").read_text(),
+                "diagnostics",
+            )
 
             previous = output / "keep.txt"
             previous.write_text("existing")

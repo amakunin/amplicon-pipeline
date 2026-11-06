@@ -102,6 +102,8 @@ partial run. Optional `preprocess.porechop_abi_options` and
 `preprocess.chopper_options` in `pipeline.yaml` are passed as shell-style
 argument strings; omitted or empty values use tool defaults. Both tools use
 the shared `threads` value.
+Standalone `--keep-intermediates` retains `preprocessed/work/`; otherwise it
+is removed only after all samples succeed. Failed preprocessing retains work.
 
 Input preparation requires `--preprocessed-dir`, not `--demux-dir`. It
 copies upstream exclusion reasons and writes samplesheets pointing to the
@@ -122,9 +124,9 @@ output_dir/
     params.yaml
     resources.config
     .completion.json         # input/config fingerprints for safe target skip
-    .nextflow/              # retained cache
+    .nextflow/              # metadata; cache retained with --keep-intermediates
     .nextflow.log
-    work/                   # retained task files
+    work/                   # retained with --keep-intermediates or on failure
     results/                # published ampliseq outputs
   summary/
     asvs.tsv                # unique target-ASVs and reported taxonomy
@@ -224,15 +226,24 @@ unchanged and no ASVs are removed.
 ### Restart handling
 
 Demultiplexing is skipped only when its record matches the run, manifest,
-configuration, barcode resources and all generated files. An existing partial
+configuration, barcode resources and all published files. An existing partial
 or stale demux directory causes a clear error and is left untouched.
 Preprocessing follows the same skip-or-refuse policy, with fingerprints of
 demux files, the manifest, barcode mappings, preprocessing source/helpers,
 effective options and threads, and all processed outputs. Summary or ampliseq
 settings do not invalidate preprocessing. Standalone preprocessing does not
 write a driver completion record.
+Top-level demux/preprocessing `work/` is excluded from published-output
+fingerprints and downstream input fingerprints.
 For each target, ampliseq is skipped only when its input, configuration, selected profile
-and published result files match; otherwise Nextflow runs with `-resume`.
+and published result files match; otherwise Nextflow runs again.
+Pipeline `--keep-intermediates` retains stage work and Nextflow cache and
+enables Nextflow `-resume`; without it Nextflow runs without `-resume`.
+Each target uses its own `work/`. After success without the flag, only that
+target's `work/` and `.nextflow/cache/` are removed, before completion recording.
+Failures and skipped targets are not cleaned. Logs, results, other metadata
+and external caches remain. Cleanup refuses symlinked scratch directories or
+published links into scratch; use copy publication or retain intermediates.
 Configuration fingerprints are stage-specific: demux uses its effective
 settings/command and barcode resources; each ampliseq target uses its resolved
 parameters, command, executor configuration and input/reference files. Unrelated

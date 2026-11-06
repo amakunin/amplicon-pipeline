@@ -16,10 +16,11 @@ and a sample manifest, it will:
 
 ## Requirements
 
-- Python 3.12, PyYAML and [seqtk](https://github.com/lh3/seqtk)
-  (provided by the project Conda environment)
-- [Nextflow](https://www.nextflow.io/) 26 or higher (required by ampliseq 3.0.0; checked before the run starts) and a container runtime (Docker,
-  Singularity or Apptainer)
+- Python 3.12, PyYAML, [seqtk](https://github.com/lh3/seqtk), Porechop ABI
+  0.5.0post1, Chopper 0.12.0b and [Nextflow](https://www.nextflow.io/) 26.04
+  (provided by the project Conda environment; Nextflow is checked before the
+  run starts)
+- A container runtime (Docker, Singularity or Apptainer)
 - [Dorado](https://github.com/nanoporetech/dorado) 0.8.2 (installed separately)
 - A SINTAX reference database for each target
 - Optionally an LSF cluster (`--profile lsf`)
@@ -35,14 +36,14 @@ python run_pipeline.py --help
 ```
 
 The single development and driver environment in [env.yaml](env.yaml) provides
-Python 3.12, PyYAML and seqtk 1.4. No separate test
-dependencies are needed. Update an existing environment after dependency changes
-with `conda env update --name amplicon-pipeline --file env.yaml`.
+Python 3.12, PyYAML, seqtk 1.4, Porechop ABI, Chopper and Nextflow with its Java
+runtime. No separate test dependencies are needed. Update an existing
+environment after dependency changes with
+`conda env update --name amplicon-pipeline --file env.yaml`.
 
-The project Conda environment does not supply Nextflow, its Java runtime,
-Singularity/Apptainer (or Docker), or Dorado 0.8.2; install these separately.
-Make the Nextflow launcher and
-container runtime available in the execution shell. Dorado is found through
+The project Conda environment does not supply Singularity/Apptainer (or Docker)
+or Dorado 0.8.2; install these separately. Make the container runtime
+available in the execution shell. Dorado is found through
 `demux.dorado_exec` in your run configuration, or on `PATH` if unset; seqtk
 always comes from the activated environment's `PATH`.
 
@@ -65,8 +66,9 @@ python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile
 Copy [config/example/](config/example/) to a run-specific directory and edit:
 
 - [pipeline.yaml](config/example/pipeline.yaml): shared `threads`, `demux`
-  settings, native ampliseq parameters under `ampliseq.common` and
-  `ampliseq.targets`, and QC settings under `summary.common`/`summary.targets`.
+  settings, optional shared `preprocess` tool arguments, native ampliseq
+  parameters under `ampliseq.common` and `ampliseq.targets`, and QC settings
+  under `summary.common`/`summary.targets`.
   Target values replace common values by parameter name, including entire
   option strings and lists; they are not concatenated or recursively merged.
   `ampliseq.targets` defines targets and execution order. The pipeline sets

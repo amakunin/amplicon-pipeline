@@ -86,7 +86,7 @@ testing from demultiplexing through plots.
 - Record provenance, redistribution approval, checksums and known expectations;
   distinguish these from results awaiting validation at later milestones.
 - Establish the fixture as the primary integration dataset. Keep small
-  synthetic tests for errors and edge cases; scaling is covered in M10.
+  synthetic tests for errors and edge cases; scaling is covered in M12.
 
 **Done when:** the dataset and manifest load, integrity is verified, and
 expected coverage of both methods and multiple targets is documented.
@@ -353,7 +353,7 @@ outputs before summary schemas are defined.
 - Primary capture replaced with the approved Illumina run `results/m7a_test`,
   including demux statistics, to cover partial/unexpected barcode assignments
   and low-confidence raw taxonomy. Historical hybrid evidence remains in the
-  fixture README; fixture-specific Savont settings are investigated in M11.
+  fixture README; fixture-specific Savont settings are investigated in M12.
 - **Review gate:** developer approves observed outcomes and Savont output
   layouts before M7 summary schemas are defined.
 
@@ -500,33 +500,101 @@ in M5-M6, with tests on small captured output.
 
 - Standalone `scripts/qc_assignments.py` joins assignments to sequence QC by
   `(target, asv_id)` and writes `assignment_qc.tsv`, retaining all rows, counts,
-  sequence evidence and QC labels. Driver wiring is deferred.
+  sequence evidence, assignment-level `qc_labels` and sequence-level
+  `sequence_qc_labels`. Driver wiring is deferred.
 - Compare each target-ASV across the run, including sequence-QC failures.
   If total reads exceed `min_contam_total_reads` (default 10000), assignments
   below `max_contam_prop` (default 0.01) of that total are `contam_possible`.
   Assignments below `max_locov` (default 100) are `locov`; labels may overlap.
   Settings can be overridden per target.
+- Sequence labels mark length statuses `too_short`, `too_long` and
+  `unexpected_length`, plus coding statuses `no_stop_free_frame` and
+  `uncertain`. `pass`, `not_checked`, `one_stop_free_frame` and
+  `multiple_stop_free_frames` produce no sequence label.
 - Stdout and `assignment_qc.log` list only ASVs with affected samples:
   target, ASV ID, total reads, target cutoff and affected-sample count.
 - Old contamination configuration keys fail explicitly rather than being
-  silently ignored. Focused QC tests and fixture checksum checks pass.
+  silently ignored. Focused QC tests and fixture checksum checks pass; the
+  sequence-label addition remains to be implemented and reviewed.
 - **Review gate:** developer reviews the revised rules and output schema.
 
-## M9 - Read-count accounting
+## M9 - Read preprocessing
+
+[~]
+
+**Goal:** run Porechop ABI and Chopper once per expected sample FASTQ before
+ampliseq, using one Conda environment for pipeline and command-line tools.
+
+**Tasks**
+- Pin Porechop ABI 0.5.0post1, Chopper 0.12.0b and Nextflow 26.04 in `env.yaml`;
+  Dorado remains separately installed.
+- Trim/filter each expected demultiplexed sample FASTQ once, not once per
+  target. Use tool defaults unless the preprocessing configuration supplies
+  options; use the shared `threads` setting where supported.
+- Point per-target ampliseq inputs at the preprocessed FASTQs and skip its
+  Porechop and Chopper steps.
+- Retain missing and empty sample accounting and safe restart behavior; never
+  delete prior results.
+
+### M9a - Conda tools and configuration
+
+[~]
+
+- Add the pinned tools to the single environment; include an optional
+  `preprocess` configuration section for tool options, omitted to use tool
+  defaults. Dorado remains separate.
+- Verify a fresh environment solve with Python 3.12 and the existing pipeline
+  dependencies.
+- Conda dry-run resolves Python 3.12.16, Porechop ABI 0.5.0post1, Chopper
+  0.12.0b and Nextflow 26.04.7 without conflicts.
+- **Review gate:** developer approves environment resolution and config shape.
+
+### M9b - Standalone preprocessing script
+
+[ ]
+
+- Add a standalone script that processes expected manifest sample FASTQs from
+  demultiplexing through Porechop ABI then Chopper, once per sample.
+- Use explicit paths, shared threads and tool defaults; pass tool failures
+  through. Add focused tests with mocked executables.
+- **Review gate:** developer approves the script interface and output contract.
+
+### M9c - Pipeline integration and restart
+
+[ ]
+
+- Run preprocessing after demultiplexing and before per-target input
+  preparation. Generate each ampliseq samplesheet from the shared preprocessed
+  FASTQs, and skip Porechop/Chopper inside ampliseq.
+- Fingerprint preprocessing inputs, effective configuration and outputs;
+  verify safe reruns and preserve prior results.
+- **Review gate:** developer approves driver integration and restart behavior.
+
+### M9d - Fixture validation
+
+[ ]
+
+- Validate both demultiplexing methods where available on the small fixture;
+  record preprocessing outcomes and check per-target input reuse.
+- Do not regenerate or edit fixture data.
+- **Review gate:** developer approves the observed preprocessing outputs.
+
+## M10 - Read-count accounting
 
 [ ]
 
 **Goal:** a hierarchical read-flow report from the raw run through barcode
-assignment, sample preprocessing, target inference and M8 acceptance decisions.
+assignment, shared preprocessing, target inference and sequence/assignment QC.
 Keep this separate from ASV and sample summaries, in a dedicated script.
 
 **Tasks**
-- Aggregate `demux/demux_stats.txt`, per-target `overall_summary.tsv`, Savont
-  feature counts and downstream accepted assignments. Agree the script
-  interface and output schemas before implementation.
+- Aggregate the raw-input count, `demux/demux_stats.txt`, shared preprocessing
+  input/output counts, per-target `overall_summary.tsv`, Savont feature counts
+  and assignment QC.
 - Represent branches explicitly: run -> first barcode -> second barcode or
-  unmatched -> manifest sample -> preprocessing -> target -> Savont ->
-  accepted assignments. Preserve barcode-level counts without sample matches.
+  unmatched -> manifest sample -> Porechop ABI -> Chopper -> target ->
+  ampliseq preprocessing -> Savont -> QC-passing assignments. Preserve
+  barcode-level counts without sample matches.
 - Distinguish unmatched first barcodes, matched first barcodes with unmatched
   second barcodes, unexpected first barcodes, unexpected complete pairs and
   expected complete pairs. Evaluate second-barcode expectations within their
@@ -536,15 +604,18 @@ Keep this separate from ASV and sample summaries, in a dedicated script.
 - Reconstruct first-barcode totals from their descendants. Compare the
   demux-reported total with an independent raw-input read count; do not assume
   conservation. Reconcile adjacent stages as well as counts across targets.
-- Record `chopper_input`, `chopper_output` and `cutadapt_total_processed` once
-  per sample when all reporting targets agree. Warn on disagreements and
-  retain target-specific observations; never silently choose one target.
-  Preserve missing values and `NA` separately from zero.
+- Record Porechop ABI and Chopper counts once per sample at the shared
+  preprocessing stage. Keep target-level counts, including
+  `cutadapt_total_processed`, target-specific; warn on disagreements and never
+  silently choose one target. Preserve missing values and `NA` separately from
+  zero.
 - Keep primer-selection, Savont and accepted-assignment counts target-specific.
   Targets receive the same sample reads: do not sum shared preprocessing counts
   across targets or assume target branches partition the reads.
-- Include read counts before and after M8 filtering of spurious sample-level
-  ASV assignments. Do not introduce acceptance thresholds in this milestone.
+- Include read counts before and after sequence and assignment QC. An
+  assignment passes when both `sequence_qc_labels` and `qc_labels` are blank;
+  sum its `read_count` once. QC labels may overlap, so per-label rejected
+  counts are not additive. Do not introduce new acceptance thresholds.
 - Test expected/unexpected pairs, partial classification, missing values and
   reconciliation warnings using small fixtures approved before capture.
 
@@ -560,7 +631,7 @@ than normalize away this discrepancy. These observations are not thresholds.
 missing-value handling and reconciliation/warning rules before implementation,
 then reviews the fixture read-flow report.
 
-## M10 - Summary plots
+## M11 - Summary plots
 
 [ ]
 
@@ -570,7 +641,7 @@ then reviews the fixture read-flow report.
 
 **Review gate:** developer reviews the plots on real output.
 
-## M11 - Full-scale validation
+## M12 - Full-scale validation
 
 [ ]
 
@@ -587,21 +658,21 @@ issues are resolved.
 
 **Review gate:** developer approves production-scale behavior for release.
 
-## M12 - First release
+## M13 - First release
 
 [ ]
 
 **Tasks:** update the README from the real behaviour, document site setup,
 add `CITATION.cff`, tag `v0.1.0`.
 
-## M13 - Pipeline post-release optimisation
+## M14 - Pipeline post-release optimisation
 
 [ ]
 
 **Goal:** investigate parameter sensitivity on small runs before full-scale
 validation; distinguish changes in read recovery from changes in ASV inference.
 
-### M12a - compare hybrid and illumina demux on test data
+### M14a - compare hybrid and illumina demux on test data
 
 [ ]
 
@@ -626,14 +697,7 @@ validation; distinguish changes in read recovery from changes in ASV inference.
   logs before concluding that coverage or a particular parameter caused failure.
 - Agree comparison metrics and production parameter choices with the developer;
 
-### M12b - read pre-processing as a script
-
-[ ]
-
-- Avoid repeated Porechop/Chopper preprocessing across targets: create a script to run both tools on each sample fastq once, decide on dependencies management, implement resume logic as in the rest of pipeline, skip both tools in ampliseq portion of config. 
-- **Review gate:** developer reviews the updated pipeline end to end .
-
-### M8e - Sample-target interpretation
+### M14b - Sample-target interpretation
 
 [ ]
 
@@ -649,11 +713,11 @@ validation; distinguish changes in read recovery from changes in ASV inference.
 - **Review gate:** approve outcome definitions, taxonomy rules and table schema,
   then implementation and fixture results.
 
-### M8f - Sample level cross-target interpretation
+### M14c - Sample level cross-target interpretation
 
 [ ]
 
 - Agree reference-taxonomy harmonisation and cross-target comparison rules
   after sample-target interpretation; do not infer conflicts from missing ranks.
 - **Review gate:** approve rules and implementation scope before coding, then
-  review integrated sample summaries before M9.
+  review integrated sample summaries before M10.

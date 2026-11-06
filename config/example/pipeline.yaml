@@ -8,6 +8,12 @@ demux:
   ont_barcode_mapping: ../../assets/barcodes/ONT_nb24_barcode.tsv
   reverse_barcode_mapping: ../../assets/barcodes/Sanger_custom_barcode_R.tsv
 
+# Optional tool-specific arguments; empty strings use tool defaults.
+# Preprocessing is shared across targets and uses the top-level threads value.
+preprocess:
+  porechop_abi_options: ""
+  chopper_options: ""
+
 ampliseq:
   # Native parameters; target values replace common values, without concatenation.
   common:

@@ -284,6 +284,77 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     write_completion_record(record_path, completion_record(fingerprints, demux_dir))
 
 
+def preprocess_command(args: argparse.Namespace) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/preprocess_reads.py"),
+        "--manifest", str(args.manifest_tsv.resolve()),
+        "--config-dir", str(args.config_dir.resolve()),
+        "--demux-dir", str(args.output_dir.resolve() / "demux"),
+        "--output-dir", str(args.output_dir.resolve() / "preprocessed"),
+    ]
+
+
+def preprocess_fingerprints(
+    config: dict[str, Any], args: argparse.Namespace, command: list[str],
+) -> dict[str, str]:
+    demux = config["demux"]
+    mapping_keys = (
+        ("ont_barcode_mapping", "reverse_barcode_mapping")
+        if demux["method"] == "hybrid"
+        else ("front_barcode_mapping", "reverse_barcode_mapping")
+    )
+    fingerprints = file_fingerprints([
+        args.manifest_tsv, Path(command[1]),
+        Path(__file__).resolve(),
+        Path(__file__).resolve().parent / "scripts/prepare_inputs.py",
+        *(demux[key] for key in mapping_keys),
+    ])
+    demux_dir = args.output_dir.resolve() / "demux"
+    if not demux_dir.is_dir():
+        raise FileNotFoundError(demux_dir)
+    options = config.get("preprocess", {})
+    effective_config = {
+        "method": demux["method"], "threads": config["threads"],
+        **{
+            key: shlex.split(options.get(key, ""))
+            for key in ("porechop_abi_options", "chopper_options")
+        },
+    }
+    for key, value in (
+        ("config", effective_config),
+        ("command", command),
+        ("demux", output_fingerprints(demux_dir)),
+    ):
+        fingerprints[f"runtime:preprocess-{key}"] = hashlib.sha256(
+            json.dumps(value, sort_keys=True).encode()
+        ).hexdigest()
+    return fingerprints
+
+
+def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
+    command = preprocess_command(args)
+    output_dir = args.output_dir.resolve() / "preprocessed"
+    record_path = args.output_dir.resolve() / ".preprocess-completion.json"
+    fingerprints = preprocess_fingerprints(config, args, command)
+    if output_dir.exists():
+        if (
+            record_path.exists()
+            and json.loads(record_path.read_text())
+            == completion_record(fingerprints, output_dir)
+        ):
+            print("Skipping preprocessing: completion record matches")
+            return
+        raise SystemExit(
+            "preprocessing output is incomplete or stale; "
+            f"refusing to overwrite: {output_dir}"
+        )
+    subprocess.run(command, check=True)
+    if not output_dir.is_dir():
+        raise FileNotFoundError(output_dir)
+    write_completion_record(record_path, completion_record(fingerprints, output_dir))
+
+
 def target_fingerprints(
     args: argparse.Namespace,
     config: dict[str, Any],
@@ -336,7 +407,7 @@ def run_ampliseq(
                 str(Path(__file__).resolve().parent / "scripts/prepare_inputs.py"),
                 "--manifest", str(args.manifest_tsv),
                 "--config-dir", str(args.config_dir),
-                "--demux-dir", str(args.output_dir.resolve() / "demux"),
+                "--preprocessed-dir", str(args.output_dir.resolve() / "preprocessed"),
                 "--target", target,
                 "--output-dir", str(ampliseq_dir),
             ],
@@ -394,7 +465,7 @@ def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "ONT amplicon pipeline scaffold. Demultiplexing, ampliseq and ASV "
+            "ONT amplicon pipeline scaffold. Demultiplexing, preprocessing, ampliseq and ASV "
             "aggregation run; later stages are not implemented."
         )
     )
@@ -421,6 +492,7 @@ def main() -> None:
     if args.dry_run:
         print_plan(config, samples)
         print(f"Demux command: {shlex.join(command)}")
+        print(f"Preprocess command: {shlex.join(preprocess_command(args))}")
         for target in config["ampliseq"]["targets"]:
             target_dir = args.output_dir.resolve() / "ampliseq" / target
             ampliseq = ampliseq_command(args.config_dir, target_dir, args.profile)
@@ -429,6 +501,7 @@ def main() -> None:
         return
     check_nextflow()
     run_demux(config, args)
+    run_preprocess(config, args)
     run_ampliseq(config, args)
     subprocess.run(summary_command, check=True)
     parser.exit(

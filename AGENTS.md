@@ -48,6 +48,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `run_pipeline.py` | Fixed-order orchestration entrypoint, config loading, manifest handling and the dry-run |
 | `scripts/demux_illumina.sh` | Dorado Illumina F & R demultiplexing |
 | `scripts/demux_hybrid.sh` | Dorado hybrid ONT and R Illumina demultiplexing |
+| `scripts/preprocess_reads.py` | Shared per-sample Porechop ABI and Chopper preprocessing |
 | `scripts/prepare_inputs.py` | Per-target ampliseq samplesheet, excluded-sample list and parameter file |
 | `scripts/summarise_asvs.py` | Savont counts, sequences and taxonomy into stable tables |
 | `scripts/qc_asvs.py` | Standalone target-ASV length and six-frame coding annotations |
@@ -59,24 +60,28 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `tests/fixtures/small/` | Small mixed-target fixture; see its README |
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
-Demux, input preparation and ASV aggregation are implemented (demux contract in
-`scripts/README.md`). Sequence QC is standalone, not yet driver-wired.
+Demux, preprocessing, input preparation and ASV aggregation are implemented
+(demux contract in `scripts/README.md`). Sequence QC is standalone, not yet driver-wired.
 Sample summaries and plotting remain placeholders.
 
 ## Design decisions
 
 - **Fixed pipeline.** Stages run in a fixed order:
-  `validate -> demultiplex -> prepare inputs -> ampliseq per target -> summarise ASVs -> summarise samples -> plot`.
+  `validate -> demultiplex -> preprocess -> prepare inputs -> ampliseq per target -> summarise ASVs -> summarise samples -> plot`.
   No module registry, configurable DAG or plugin framework.
-- **Tool provisioning.** The Conda environment provides Python 3.12, PyYAML
-  and `seqtk` (taken from `PATH`; no config key). Nextflow, Java, the container
-  runtime and Dorado are installed separately. Dorado is set by
-  `demux.dorado_exec`, else taken from `PATH`.
+- **Tool provisioning.** The Conda environment provides Python 3.12, PyYAML,
+  `seqtk`, Porechop ABI, Chopper, Nextflow and Java. Command-line tools come
+  from `PATH`; the container runtime and Dorado are installed separately.
+  Dorado is set by `demux.dorado_exec`, else taken from `PATH`.
 - **Ampliseq** is called directly by the driver, once per target, pinned to
   version 3.0.0, from a stable per-target execution directory. Both the
   Nextflow cache and `work/` are kept for `-resume`.
+- **Shared preprocessing.** Every target samplesheet uses `preprocessed/`
+  FASTQs and preserves upstream exclusion reasons. Empty processed FASTQs
+  are passed to ampliseq; configurations skip its Porechop ABI and Chopper.
 - **Configuration.** Relative resource paths resolve against the user's config
-  directory. `pipeline.yaml` holds `demux`, `ampliseq.common`,
+  directory. `pipeline.yaml` holds `demux`, optional shared `preprocess` tool
+  option strings, `ampliseq.common`,
   `ampliseq.targets` and QC settings in `summary.common`/`summary.targets`,
   plus shared `threads`. Ampliseq targets define execution order and override
   common native parameters by key, without recursive merging or concatenation.
@@ -95,9 +100,10 @@ Sample summaries and plotting remain placeholders.
   generated stage inputs. Unrelated configuration changes do not invalidate
   upstream stages.
   Completion records also fingerprint published files by relative path; skip
-  only when both inputs and outputs match. Demux fails without changing an
-  existing incomplete or stale output directory. Ampliseq reruns in its stable
-  directory with Nextflow `-resume` when its record is missing or stale. Write
+  only when both inputs and outputs match. Demux and preprocessing fail without
+  changing an existing incomplete or stale output directory. Ampliseq reruns
+  in its stable directory with Nextflow `-resume` when its record is missing
+  or stale. Write
   records atomically only after success. ASV aggregation always regenerates
   its tables and provenance log, including when ampliseq targets are skipped.
 - **Never delete previous results** automatically, including on failed or

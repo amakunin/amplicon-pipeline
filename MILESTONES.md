@@ -574,21 +574,22 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
   FASTQ, including with spaces in paths; Pylance reports no errors.
 - Developer approved direct subprocess piping and its verification.
 - Example and fixture `ampliseq.common` disable Porechop ABI and Chopper.
-  Input preparation and driver routing must be updated before analysis runs
-  with these configurations.
-- Remaining review-sized steps: input preparation consumes only preprocessed
-  reads and preserves upstream exclusion reasons without checking empty
-  FASTQs; then driver execution and preprocessing completion records.
 - Input preparation now requires `--preprocessed-dir`; upstream exclusions
   are preserved and empty processed FASTQs remain in the samplesheet for
   ampliseq to handle. Missing nonexcluded files fail before replacing outputs.
-  Driver calls and driver tests will be migrated in the next step.
-- **Input preparation review gate:** verify generated inputs before wiring.
+  Developer approved input preparation.
 - Run preprocessing after demultiplexing and before per-target input
   preparation. Generate each ampliseq samplesheet from the shared preprocessed
   FASTQs, and skip Porechop/Chopper inside ampliseq.
 - Fingerprint preprocessing inputs, effective configuration and outputs;
   verify safe reruns and preserve prior results.
+- Driver execution and dry-run include preprocessing; all targets consume its
+  shared directory. `.preprocess-completion.json` is written atomically after
+  success, skips matching runs and refuses stale/incomplete outputs unchanged.
+- Developer approved the larger driver/test migration step budget.
+- All 44 offline tests and raw/captured fixture checksum checks pass.
+  Pylance reports no errors; whitespace checks pass. Real pipeline validation
+  remains M9d.
 - **Review gate:** developer approves driver integration and restart behavior.
 
 ### M9d - Fixture validation

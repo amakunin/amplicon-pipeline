@@ -4,13 +4,14 @@ An Oxford Nanopore (ONT) amplicon sequencing pipeline. Given a raw run FASTQ
 and a sample manifest, it will:
 
 1. demultiplex reads by ONT and custom forward/reverse barcodes (Dorado),
-2. infer ASVs and assign taxonomy per target with
+2. preprocess each sample once with Porechop ABI and Chopper,
+3. infer ASVs and assign taxonomy per target with
    [nf-core/ampliseq](https://nf-co.re/ampliseq) 3.0.0 (Savont),
-3. summarise ASVs and per-sample outcomes into stable tables,
-4. plot the results.
+4. summarise ASVs and per-sample outcomes into stable tables,
+5. plot the results.
 
-> **Status: in development.** Demultiplexing, per-target ampliseq and ASV
-> aggregation run. The pipeline then exits with an explicit error because
+> **Status: in development.** Demultiplexing, preprocessing, per-target ampliseq
+> and ASV aggregation run. The pipeline then exits with an explicit error because
 > sample summaries and plots are not yet implemented. See
 > [MILESTONES.md](MILESTONES.md) for progress and the development plan.
 
@@ -83,11 +84,10 @@ supported. Summary settings are not passed to ampliseq.
 Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 [provenance notes](assets/barcodes/README.md).
 
-## Standalone read preprocessing
+## Read preprocessing
 
-The preprocessing script is currently standalone; driver integration is planned
-for M9c. Given the manifest and demultiplexed FASTQs, it runs Porechop ABI then
-Chopper once per nonempty expected sample:
+The driver runs preprocessing after demultiplexing and before preparing inputs
+for all targets. It can also run standalone:
 
 ```bash
 python scripts/preprocess_reads.py \
@@ -103,11 +103,10 @@ partial run. Optional `preprocess.porechop_abi_options` and
 argument strings; omitted or empty values use tool defaults. Both tools use
 the shared `threads` value.
 
-Input preparation now requires `--preprocessed-dir`, not `--demux-dir`. It
+Input preparation requires `--preprocessed-dir`, not `--demux-dir`. It
 copies upstream exclusion reasons and writes samplesheets pointing to the
 remaining preprocessed FASTQs, leaving empty-read handling to ampliseq.
-Driver routing is not yet updated; do not run the pipeline until M9c wiring
-is complete.
+Both example configurations skip Porechop ABI and Chopper inside ampliseq.
 
 ## Outputs
 
@@ -115,6 +114,8 @@ is complete.
 output_dir/
   .demux-completion.json    # demux input and output fingerprints
   demux/                    # barcode-named FASTQs and demux_stats.txt
+  .preprocess-completion.json # preprocessing input and output fingerprints
+  preprocessed/             # shared processed FASTQs and excluded_samples.tsv
   ampliseq/<target>/         # independent Nextflow launch directory
     samplesheet.tsv
     excluded_samples.tsv
@@ -224,8 +225,13 @@ unchanged and no ASVs are removed.
 
 Demultiplexing is skipped only when its record matches the run, manifest,
 configuration, barcode resources and all generated files. An existing partial
-or stale demux directory causes a clear error and is left untouched. For each
-target, ampliseq is skipped only when its input, configuration, selected profile
+or stale demux directory causes a clear error and is left untouched.
+Preprocessing follows the same skip-or-refuse policy, with fingerprints of
+demux files, the manifest, barcode mappings, preprocessing source/helpers,
+effective options and threads, and all processed outputs. Summary or ampliseq
+settings do not invalidate preprocessing. Standalone preprocessing does not
+write a driver completion record.
+For each target, ampliseq is skipped only when its input, configuration, selected profile
 and published result files match; otherwise Nextflow runs with `-resume`.
 Configuration fingerprints are stage-specific: demux uses its effective
 settings/command and barcode resources; each ampliseq target uses its resolved

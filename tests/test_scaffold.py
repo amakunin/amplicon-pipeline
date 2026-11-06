@@ -125,6 +125,88 @@ class ConfigManifestTests(unittest.TestCase):
 
 
 class CommandRestartTests(unittest.TestCase):
+    def test_preprocess_restart_and_configuration_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            config, _ = load_config(FIXTURE / "config")
+            args = SimpleNamespace(
+                config_dir=FIXTURE / "config", manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=directory, profile="local",
+            )
+            demux_dir = directory / "demux"
+            demux_dir.mkdir()
+            reads = demux_dir / "reads.fastq.gz"
+            reads.write_bytes(b"reads")
+            command = run_pipeline.preprocess_command(args)
+            baseline = run_pipeline.preprocess_fingerprints(config, args, command)
+            config["summary"]["common"]["max_locov"] += 1
+            config["ampliseq"]["targets"]["CytB"]["sintax_cutoff"] = 0.9
+            args.profile = "lsf"
+            self.assertEqual(
+                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+            )
+            config["preprocess"] = {"chopper_options": "--quality 10"}
+            self.assertNotEqual(
+                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+            )
+            config["preprocess"] = {}
+            config["threads"] += 1
+            self.assertNotEqual(
+                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+            )
+            config["threads"] -= 1
+            output = directory / "preprocessed"
+            record = directory / ".preprocess-completion.json"
+
+            def fake_run(command, **kwargs):
+                output.mkdir()
+                (output / "reads.fastq.gz").write_bytes(b"processed")
+                (output / "excluded_samples.tsv").write_text("sample_id\treason\n")
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fake_run) as run:
+                run_pipeline.run_preprocess(config, args)
+                run_pipeline.run_preprocess(config, args)
+                run.assert_called_once_with(command, check=True)
+                before = run_pipeline.output_fingerprints(output)
+                record_bytes = record.read_bytes()
+                reads.write_bytes(b"changed")
+                with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
+                    run_pipeline.run_preprocess(config, args)
+                self.assertEqual(run_pipeline.output_fingerprints(output), before)
+                self.assertEqual(record.read_bytes(), record_bytes)
+                reads.write_bytes(b"reads")
+                config["preprocess"] = {"chopper_options": "--quality 10"}
+                with self.assertRaises(SystemExit):
+                    run_pipeline.run_preprocess(config, args)
+                config["preprocess"] = {}
+                (output / "reads.fastq.gz").unlink()
+                with self.assertRaises(SystemExit):
+                    run_pipeline.run_preprocess(config, args)
+                (output / "reads.fastq.gz").write_bytes(b"modified")
+                with self.assertRaises(SystemExit):
+                    run_pipeline.run_preprocess(config, args)
+                record.unlink()
+                with self.assertRaises(SystemExit):
+                    run_pipeline.run_preprocess(config, args)
+                run.assert_called_once()
+
+            args.output_dir = directory / "failed"
+            (args.output_dir / "demux").mkdir(parents=True)
+            failure = subprocess.CalledProcessError(7, command)
+
+            def fail_run(command, **kwargs):
+                (args.output_dir / "preprocessed").mkdir()
+                raise failure
+
+            with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fail_run):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    run_pipeline.run_preprocess(config, args)
+                self.assertIs(raised.exception, failure)
+                self.assertFalse((args.output_dir / ".preprocess-completion.json").exists())
+                with self.assertRaises(SystemExit):
+                    run_pipeline.run_preprocess(config, args)
+
     def test_stage_configuration_fingerprints_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -157,6 +239,15 @@ class CommandRestartTests(unittest.TestCase):
             args.run_fastq_gz.write_bytes(b"raw run")
             demux_dir = args.output_dir / "demux"
             demux_dir.mkdir(parents=True)
+            preprocessed_dir = args.output_dir / "preprocessed"
+            preprocessed_dir.mkdir()
+            (preprocessed_dir / "excluded_samples.tsv").write_text(
+                "sample_id\treason\n"
+                + "".join(
+                    f"{sample['sample_id']}\tno_demux_file\n"
+                    for sample in read_manifest(args.manifest_tsv, load_config(config_dir)[0])
+                )
+            )
 
             def fingerprints():
                 config, _ = load_config(config_dir)
@@ -166,7 +257,7 @@ class CommandRestartTests(unittest.TestCase):
                         sys.executable, str(ROOT / "scripts/prepare_inputs.py"),
                         "--manifest", str(args.manifest_tsv),
                         "--config-dir", str(config_dir),
-                        "--demux-dir", str(demux_dir),
+                        "--preprocessed-dir", str(preprocessed_dir),
                         "--target", target,
                         "--output-dir", str(args.output_dir / "ampliseq"),
                     ], check=True)
@@ -287,6 +378,10 @@ class CommandRestartTests(unittest.TestCase):
                         f"{target_dir.name}\n"
                     )
                 else:
+                    self.assertEqual(
+                        command[command.index("--preprocessed-dir") + 1],
+                        str(output_dir / "preprocessed"),
+                    )
                     target = command[command.index("--target") + 1]
                     target_dir = output_dir / "ampliseq" / target
                     target_dir.mkdir(parents=True, exist_ok=True)
@@ -329,7 +424,7 @@ class CommandRestartTests(unittest.TestCase):
     def test_ampliseq_completion_record_and_resume(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary) / "output"
-            demux_dir = output_dir / "demux"
+            demux_dir = output_dir / "preprocessed"
             demux_dir.mkdir(parents=True)
             with gzip.open(
                 demux_dir / "barcode02_barcode89.fastq.gz", "wb"
@@ -354,6 +449,10 @@ class CommandRestartTests(unittest.TestCase):
 
             def fake_run(command, **kwargs):
                 if "prepare_inputs.py" in command[1]:
+                    self.assertEqual(
+                        command[command.index("--preprocessed-dir") + 1],
+                        str(demux_dir),
+                    )
                     target_dir.mkdir(parents=True, exist_ok=True)
                     reads = demux_dir / "barcode02_barcode89.fastq.gz"
                     (target_dir / "samplesheet.tsv").write_text(
@@ -576,10 +675,21 @@ class CliTests(unittest.TestCase):
                     demux_dir.mkdir(parents=True)
                     (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
                     return subprocess.CompletedProcess(command, 0)
+                if "preprocess_reads.py" in command[1]:
+                    preprocessed_dir = Path(command[command.index("--output-dir") + 1])
+                    preprocessed_dir.mkdir()
+                    (preprocessed_dir / "reads.fastq.gz").write_bytes(b"reads")
+                    (preprocessed_dir / "excluded_samples.tsv").write_text(
+                        "sample_id\treason\n"
+                    )
+                    return subprocess.CompletedProcess(command, 0)
                 if "prepare_inputs.py" in command[1]:
                     target_dir.mkdir(parents=True, exist_ok=True)
-                    reads = Path(temporary) / "input.fastq.gz"
-                    reads.write_bytes(b"reads")
+                    reads = Path(argv[-1]) / "preprocessed/reads.fastq.gz"
+                    self.assertEqual(
+                        command[command.index("--preprocessed-dir") + 1],
+                        str(reads.parent),
+                    )
                     (target_dir / "samplesheet.tsv").write_text(
                         f"sample\tfastq_1\nsample\t{reads}\n"
                     )
@@ -606,16 +716,17 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, 1)
                 commands = [call.args[0] for call in run.call_args_list]
                 self.assertIn("demux_illumina.sh", commands[0][1])
-                self.assertIn("prepare_inputs.py", commands[1][1])
-                self.assertEqual(commands[2][:3], ["nextflow", "run", "nf-core/ampliseq"])
-                self.assertEqual(run.call_args_list[2].kwargs["cwd"], target_dir)
+                self.assertIn("preprocess_reads.py", commands[1][1])
+                self.assertIn("prepare_inputs.py", commands[2][1])
+                self.assertEqual(commands[3][:3], ["nextflow", "run", "nf-core/ampliseq"])
+                self.assertEqual(run.call_args_list[3].kwargs["cwd"], target_dir)
                 expected_summary = [
                     sys.executable, str(ROOT / "scripts/summarise_asvs.py"),
                     "--target", "CytB", str(target_dir / "results"),
                     "--output-dir", str(Path(argv[-1]) / "summary"),
                 ]
-                self.assertEqual(commands[3], expected_summary)
-                self.assertEqual(run.call_args_list[3].kwargs, {"check": True})
+                self.assertEqual(commands[4], expected_summary)
+                self.assertEqual(run.call_args_list[4].kwargs, {"check": True})
                 summary = Path(argv[-1]) / "summary"
                 before = {
                     path.name: path.read_bytes() for path in summary.iterdir()
@@ -647,6 +758,8 @@ class CliTests(unittest.TestCase):
         with mock.patch.object(sys, "argv", argv), mock.patch.object(
             run_pipeline, "check_nextflow"
         ), mock.patch.object(run_pipeline, "run_demux"), mock.patch.object(
+            run_pipeline, "run_preprocess"
+        ), mock.patch.object(
             run_pipeline, "run_ampliseq"
         ), mock.patch.object(
             run_pipeline.subprocess, "run", side_effect=failure
@@ -657,6 +770,24 @@ class CliTests(unittest.TestCase):
         run.assert_called_once()
         self.assertIn("summarise_asvs.py", run.call_args.args[0][1])
         self.assertEqual(run.call_args.kwargs, {"check": True})
+
+    def test_preprocess_failure_stops_before_ampliseq(self) -> None:
+        argv = [
+            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            str(FIXTURE / "config"), "out",
+        ]
+        failure = subprocess.CalledProcessError(7, ["preprocess_reads.py"])
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(run_pipeline, "check_nextflow"),
+            mock.patch.object(run_pipeline, "run_demux"),
+            mock.patch.object(run_pipeline, "run_preprocess", side_effect=failure),
+            mock.patch.object(run_pipeline, "run_ampliseq") as ampliseq,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                run_pipeline.main()
+            self.assertIs(raised.exception, failure)
+            ampliseq.assert_not_called()
 
     def test_dry_run_prints_plan_without_creating_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -681,6 +812,11 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             plan, commands = result.stdout.split("Demux command: ", 1)
             self.assertIn("demux_illumina.sh", commands)
+            preprocess = run_pipeline.preprocess_command(SimpleNamespace(
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                config_dir=FIXTURE / "config", output_dir=output_dir,
+            ))
+            self.assertIn(f"Preprocess command: {shlex.join(preprocess)}", commands)
             self.assertIn("Ampliseq command (CytB): nextflow run", commands)
             summary_command = [
                 sys.executable, str(ROOT / "scripts/summarise_asvs.py"),

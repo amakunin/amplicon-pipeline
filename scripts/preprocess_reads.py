@@ -15,6 +15,42 @@ from run_pipeline import load_config, read_manifest
 from scripts.prepare_inputs import demux_filename
 
 
+def run_chopper(
+    input_path: Path, output_path: Path, options: list[str], threads: str,
+) -> None:
+    processes: list[subprocess.Popen[bytes]] = []
+    try:
+        with output_path.open("wb") as handle:
+            zcat = subprocess.Popen(["zcat", str(input_path)], stdout=subprocess.PIPE)
+            processes.append(zcat)
+            assert zcat.stdout is not None
+            chopper = subprocess.Popen(
+                ["chopper", *options, "-t", threads],
+                stdin=zcat.stdout, stdout=subprocess.PIPE,
+            )
+            processes.append(chopper)
+            zcat.stdout.close()
+            assert chopper.stdout is not None
+            gzip_process = subprocess.Popen(
+                ["gzip"], stdin=chopper.stdout, stdout=handle,
+            )
+            processes.append(gzip_process)
+            chopper.stdout.close()
+            for process in reversed(processes):
+                process.wait()
+            for process in reversed(processes):
+                if process.returncode:
+                    raise subprocess.CalledProcessError(process.returncode, process.args)
+    finally:
+        for process in processes:
+            if process.stdout is not None:
+                process.stdout.close()
+            if process.poll() is None:
+                process.terminate()
+        for process in processes:
+            process.wait()
+
+
 def preprocess_reads(
     manifest_path: Path,
     config_dir: Path,
@@ -57,7 +93,7 @@ def preprocess_reads(
     for filename, reads in included:
         output = output_dir / filename
         with tempfile.TemporaryDirectory() as temporary:
-            porechop_output = Path(temporary) / "porechop.fastq"
+            porechop_output = Path(temporary) / "porechop.fastq.gz"
             subprocess.run(
                 [
                     "porechop_abi", "-abi", *porechop_options,
@@ -65,15 +101,7 @@ def preprocess_reads(
                 ],
                 check=True,
             )
-            with gzip.open(output, "wb") as handle:
-                subprocess.run(
-                    [
-                        "chopper", *chopper_options, "-t", threads,
-                        "-i", str(porechop_output),
-                    ],
-                    stdout=handle,
-                    check=True,
-                )
+            run_chopper(porechop_output, output, chopper_options, threads)
 
 
 def main() -> None:

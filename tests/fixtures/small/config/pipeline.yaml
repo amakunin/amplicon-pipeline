@@ -14,6 +14,8 @@ ampliseq:
     asv_calling: "savont"
     sample_inference: "pooled"
     sintax_cutoff: 0.8
+    skip_porechop_abi: true
+    skip_chopper: true
     skip_dada_taxonomy: true
     skip_barrnap: true
     skip_phyloseq: true

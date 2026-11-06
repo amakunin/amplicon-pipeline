@@ -20,6 +20,8 @@ ampliseq:
     sequencing_type: "nanopore"
     asv_calling: "savont"
     sample_inference: "pooled"
+    skip_porechop_abi: true
+    skip_chopper: true
     skip_dada_taxonomy: true
     skip_barrnap: true
     skip_phyloseq: true

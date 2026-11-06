@@ -103,6 +103,12 @@ partial run. Optional `preprocess.porechop_abi_options` and
 argument strings; omitted or empty values use tool defaults. Both tools use
 the shared `threads` value.
 
+Input preparation now requires `--preprocessed-dir`, not `--demux-dir`. It
+copies upstream exclusion reasons and writes samplesheets pointing to the
+remaining preprocessed FASTQs, leaving empty-read handling to ampliseq.
+Driver routing is not yet updated; do not run the pipeline until M9c wiring
+is complete.
+
 ## Outputs
 
 ```text

@@ -563,8 +563,27 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 
 ### M9c - Pipeline integration and restart
 
-[ ]
+[~]
 
+- Prerequisite correction: Porechop writes a compressed intermediate, then
+  `zcat`, Chopper and `gzip` are directly connected with `subprocess.Popen`.
+  Each exit code is checked; children are terminated/reaped on startup failure.
+  Passing a Python gzip handle as subprocess stdout bypassed compression.
+  Four focused tests check compressed output, every stage's failures and
+  startup cleanup. Installed Chopper produces the exact expected decompressed
+  FASTQ, including with spaces in paths; Pylance reports no errors.
+- Developer approved direct subprocess piping and its verification.
+- Example and fixture `ampliseq.common` disable Porechop ABI and Chopper.
+  Input preparation and driver routing must be updated before analysis runs
+  with these configurations.
+- Remaining review-sized steps: input preparation consumes only preprocessed
+  reads and preserves upstream exclusion reasons without checking empty
+  FASTQs; then driver execution and preprocessing completion records.
+- Input preparation now requires `--preprocessed-dir`; upstream exclusions
+  are preserved and empty processed FASTQs remain in the samplesheet for
+  ampliseq to handle. Missing nonexcluded files fail before replacing outputs.
+  Driver calls and driver tests will be migrated in the next step.
+- **Input preparation review gate:** verify generated inputs before wiring.
 - Run preprocessing after demultiplexing and before per-target input
   preparation. Generate each ampliseq samplesheet from the shared preprocessed
   FASTQs, and skip Porechop/Chopper inside ampliseq.

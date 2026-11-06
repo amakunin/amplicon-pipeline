@@ -104,6 +104,11 @@ argument strings; omitted or empty values use tool defaults. Both tools use
 the shared `threads` value.
 Standalone `--keep-intermediates` retains `preprocessed/work/`; otherwise it
 is removed only after all samples succeed. Failed preprocessing retains work.
+After all samples succeed, `preprocessed/read_counts.tsv` records
+`sample_id`, `input_reads`, `porechop_reads` and `chopper_reads` in manifest
+order, independently of retention mode. Missing inputs have blank counts;
+empty inputs have input count 0 and blank downstream counts because tools
+were not run. Measured empty tool outputs have count 0.
 
 Input preparation requires `--preprocessed-dir`, not `--demux-dir`. It
 copies upstream exclusion reasons and writes samplesheets pointing to the

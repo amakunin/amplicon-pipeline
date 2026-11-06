@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.preprocess_reads import preprocess_reads, run_chopper
+from scripts.preprocess_reads import count_fastq_reads, preprocess_reads, run_chopper
 
 
 class PreprocessReadsTests(unittest.TestCase):
@@ -18,8 +18,9 @@ class PreprocessReadsTests(unittest.TestCase):
             root = Path(temporary)
             demux = root / "demux"
             demux.mkdir()
-            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", b"raw one")
-            self.write_fastq(demux / "barcode08_barcode09.fastq.gz", b"raw two")
+            fastq = b"@read\nACGT\n+\nIIII\n"
+            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", fastq * 3)
+            self.write_fastq(demux / "barcode08_barcode09.fastq.gz", fastq * 4)
             self.write_fastq(demux / "barcode08_barcode64.fastq.gz", b"")
             output = root / "preprocessed"
             config = {
@@ -47,7 +48,7 @@ class PreprocessReadsTests(unittest.TestCase):
                 self.assertEqual(path.parent.parent, output.resolve() / "work")
                 scratch.mkdir()
                 (scratch / "tool-work.txt").write_text("scratch")
-                self.write_fastq(path, b"trimmed")
+                self.write_fastq(path, fastq * 2)
 
             def chopper(input_path, output_path, options, threads):
                 self.write_fastq(output_path, fastq)
@@ -84,20 +85,29 @@ class PreprocessReadsTests(unittest.TestCase):
                 "ANLCx_001_A1\tno_demux_file\n",
             )
             self.assertFalse((output / "work").exists())
+            self.assertEqual(
+                (output / "read_counts.tsv").read_text(),
+                "sample_id\tinput_reads\tporechop_reads\tchopper_reads\n"
+                "ANLCx_002_A12\t3\t2\t1\n"
+                "BFHK_023_H8\t0\t\t\n"
+                "BFHK_023_A2\t4\t2\t1\n"
+                "ANLCx_001_A1\t\t\t\n",
+            )
 
     def test_keep_intermediates_retains_stage_work(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             demux = root / "demux"
             demux.mkdir()
-            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", b"raw")
+            fastq = b"@read\nACGT\n+\nIIII\n"
+            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", fastq)
             output = root / "preprocessed"
             config = {"threads": 1, "demux": {"method": "illumina"}}
             samples = [self.sample("ANLCx_002_A12", "02", "89")]
 
             def run(command: list[str], **kwargs: object) -> None:
                 path = Path(command[command.index("-o") + 1])
-                self.write_fastq(path, b"trimmed")
+                self.write_fastq(path, fastq)
                 scratch = Path(command[command.index("--temp_dir") + 1])
                 scratch.mkdir()
                 (scratch / "tool-work.txt").write_text("scratch")
@@ -106,9 +116,25 @@ class PreprocessReadsTests(unittest.TestCase):
                 patch("scripts.preprocess_reads.load_config", return_value=(config, {})),
                 patch("scripts.preprocess_reads.read_manifest", return_value=samples),
                 patch("scripts.preprocess_reads.subprocess.run", side_effect=run),
-                patch("scripts.preprocess_reads.run_chopper") as chopper,
+                patch(
+                    "scripts.preprocess_reads.run_chopper",
+                    side_effect=lambda source, destination, options, threads:
+                    self.write_fastq(destination, b""),
+                ) as chopper,
             ):
                 preprocess_reads(root / "manifest.tsv", root, demux, output, True)
+                clean = root / "clean"
+                preprocess_reads(root / "manifest.tsv", root, demux, clean)
+                self.assertEqual(
+                    (output / "read_counts.tsv").read_bytes(),
+                    (clean / "read_counts.tsv").read_bytes(),
+                )
+                self.assertEqual(
+                    (clean / "read_counts.tsv").read_text(),
+                    "sample_id\tinput_reads\tporechop_reads\tchopper_reads\n"
+                    "ANLCx_002_A12\t1\t1\t0\n",
+                )
+                self.assertFalse((clean / "work").exists())
                 chopper.side_effect = subprocess.CalledProcessError(7, ["chopper"])
                 with self.assertRaises(subprocess.CalledProcessError):
                     preprocess_reads(
@@ -117,9 +143,10 @@ class PreprocessReadsTests(unittest.TestCase):
             self.assertTrue(
                 (root / "failed/work/barcode02_barcode89/porechop.fastq.gz").is_file(),
             )
+            self.assertFalse((root / "failed/read_counts.tsv").exists())
             sample_work = output / "work/barcode02_barcode89"
             with gzip.open(sample_work / "porechop.fastq.gz", "rb") as handle:
-                self.assertEqual(handle.read(), b"trimmed")
+                self.assertEqual(handle.read(), fastq)
             self.assertEqual(
                 (sample_work / "tmp/tool-work.txt").read_text(), "scratch",
             )
@@ -129,7 +156,9 @@ class PreprocessReadsTests(unittest.TestCase):
             root = Path(temporary)
             demux = root / "demux"
             demux.mkdir()
-            self.write_fastq(demux / "barcode02_barcode89.fastq.gz", b"raw")
+            self.write_fastq(
+                demux / "barcode02_barcode89.fastq.gz", b"@read\nACGT\n+\nIIII\n",
+            )
             output = root / "preprocessed"
             config = {"threads": 1, "demux": {"method": "illumina"}}
             samples = [self.sample("ANLCx_002_A12", "02", "89")]
@@ -148,6 +177,7 @@ class PreprocessReadsTests(unittest.TestCase):
                 with self.assertRaises(subprocess.CalledProcessError):
                     preprocess_reads(root / "manifest.tsv", root, demux, output)
             self.assertTrue(output.is_dir())
+            self.assertFalse((output / "read_counts.tsv").exists())
             self.assertEqual(
                 (output / "work/barcode02_barcode89/tmp/failed-tool.txt").read_text(),
                 "diagnostics",
@@ -162,6 +192,13 @@ class PreprocessReadsTests(unittest.TestCase):
                 ):
                     preprocess_reads(root / "manifest.tsv", root, demux, output)
             self.assertEqual(previous.read_text(), "existing")
+
+    def test_count_fastq_reads_rejects_incomplete_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "incomplete.fastq.gz"
+            self.write_fastq(path, b"@read\nACGT\n+\n")
+            with self.assertRaisesRegex(ValueError, "Incomplete FASTQ record"):
+                count_fastq_reads(path)
 
     def test_compression_pipeline_checks_all_processes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -15,6 +15,17 @@ from run_pipeline import load_config, read_manifest
 from scripts.prepare_inputs import demux_filename
 
 
+def count_fastq_reads(path: Path) -> int:
+    count = 0
+    with gzip.open(path, "rb") as handle:
+        while handle.readline():
+            for _ in range(3):
+                if not handle.readline():
+                    raise ValueError(f"Incomplete FASTQ record: {path}")
+            count += 1
+    return count
+
+
 def run_chopper(
     input_path: Path, output_path: Path, options: list[str], threads: str,
 ) -> None:
@@ -71,19 +82,25 @@ def preprocess_reads(
     threads = str(config["threads"])
     included = []
     excluded = []
+    counts = []
     method = config["demux"]["method"]
     for sample in samples:
         filename = demux_filename(method, sample["barcode_indices"])
         reads = demux_dir / filename
+        row = {
+            "sample_id": sample["sample_id"], "input_reads": "",
+            "porechop_reads": "", "chopper_reads": "",
+        }
+        counts.append(row)
         if not reads.exists():
             excluded.append((sample["sample_id"], "no_demux_file"))
             continue
-        with gzip.open(reads, "rb") as handle:
-            has_reads = bool(handle.read(1))
-        if not has_reads:
+        input_reads = count_fastq_reads(reads)
+        row["input_reads"] = str(input_reads)
+        if input_reads == 0:
             excluded.append((sample["sample_id"], "empty_fastq"))
             continue
-        included.append((filename, reads))
+        included.append((filename, reads, row))
 
     output_dir.mkdir(parents=True)
     with (output_dir / "excluded_samples.tsv").open("w", newline="") as handle:
@@ -92,7 +109,7 @@ def preprocess_reads(
         writer.writerows(excluded)
 
     work = output_dir / "work"
-    for filename, reads in included:
+    for filename, reads, row in included:
         output = output_dir / filename
         sample_work = work / filename.removesuffix(".fastq.gz")
         sample_work.mkdir(parents=True)
@@ -105,7 +122,17 @@ def preprocess_reads(
             ],
             check=True,
         )
+        row["porechop_reads"] = str(count_fastq_reads(porechop_output))
         run_chopper(porechop_output, output, chopper_options, threads)
+        row["chopper_reads"] = str(count_fastq_reads(output))
+    with (output_dir / "read_counts.tsv").open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["sample_id", "input_reads", "porechop_reads", "chopper_reads"],
+            delimiter="\t",
+        )
+        writer.writeheader()
+        writer.writerows(counts)
     if not keep_intermediates and work.exists():
         shutil.rmtree(work)
 

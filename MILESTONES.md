@@ -520,31 +520,21 @@ in M5-M6, with tests on small captured output.
 
 ## M9 - Read preprocessing
 
-[~]
+[x]
 
 **Goal:** run Porechop ABI and Chopper once per expected sample FASTQ before
 ampliseq, using one Conda environment for pipeline and command-line tools.
 
-**Tasks**
-- Pin Porechop ABI 0.5.0post1, Chopper 0.12.0b and Nextflow 26.04 in `env.yaml`;
-  Dorado remains separately installed.
-- Trim/filter each expected demultiplexed sample FASTQ once, not once per
-  target. Use tool defaults unless the preprocessing configuration supplies
-  options; use the shared `threads` setting where supported.
-- Point per-target ampliseq inputs at the preprocessed FASTQs and skip its
-  Porechop and Chopper steps.
-- Retain missing and empty sample accounting and safe restart behavior; never
-  delete prior results.
+Developer approved closure after Illumina concordance, hybrid smoke validation
+and retained/default-cleanup end-to-end runs with unchanged-command repeats.
 
 ### M9a - Conda tools and configuration
 
 [x]
 
-- Add the pinned tools to the single environment; include an optional
-  `preprocess` configuration section for tool options, omitted to use tool
-  defaults. Dorado remains separate.
-- Verify a fresh environment solve with Python 3.12 and the existing pipeline
-  dependencies.
+- Single environment pins preprocessing tools and Nextflow; optional
+  `preprocess` option strings and shared threads configure tools.
+  Dorado remains separate.
 - Conda dry-run resolves Python 3.12.16, Porechop ABI 0.5.0post1, Chopper
   0.12.0b and Nextflow 26.04.7 without conflicts. The recreated environment
   reports Porechop ABI 0.5.0 and Chopper 0.12.0.
@@ -553,13 +543,9 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 
 [x]
 
-- Add a standalone script that processes expected manifest sample FASTQs from
-  demultiplexing through Porechop ABI then Chopper, once per sample.
-- Use explicit paths, shared threads and tool defaults; pass tool failures
-  through. Add focused tests with mocked executables. The script and tests are
-  implemented; both focused tests pass.
-- Developer approved the script interface and output contract after focused
-  preprocessing and input-preparation tests passed.
+- Standalone script runs Porechop ABI then Chopper once per expected nonempty
+  demux sample. Missing/empty inputs remain explicit exclusions; external tool
+  failures propagate. Developer approved interface and output contract.
 
 ### M9c - Pipeline integration and restart
 
@@ -577,8 +563,7 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
   success, skips matching runs and refuses stale/incomplete outputs unchanged.
 - All 44 offline tests and raw/captured fixture checksum checks pass.
   Real Chopper output decompresses exactly, including with spaces in paths.
-  Pylance and whitespace checks pass. Developer approved integration;
-  real pipeline validation remains M9d.
+  Pylance and whitespace checks pass. Developer approved integration.
 
 ### M9d - Fixture validation
 
@@ -598,25 +583,21 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
   FASTQs are valid; both absent samples are explicitly excluded.
   Demux work was retained; preprocessing work was cleaned after success.
   No hybrid ampliseq run was required.
-- Developer approved closure. Existing runs and frozen captures are unchanged;
-  capture updates and unchanged-run skip verification carry into M9e.
+- Developer approved closure. Frozen captures remain unchanged; M9e verifies
+  unchanged-command skips.
 
 ### M9e - Intermediate directories and retention
 
-[~]
+[x]
 
 - Standalone preprocessing uses `preprocessed/work/<barcode-pair>/` for the
   Porechop FASTQ and explicitly routes `--temp_dir` to its `tmp/` child.
   Published FASTQs remain outside work. `--keep-intermediates` retains work;
   otherwise the stage removes work only after all samples succeed.
   Failures retain work.
-- Five preprocessing tests pass, covering scratch routing, success cleanup,
-  retention and Porechop/Chopper failures; CLI help and Pylance checks pass.
 - Both demux scripts now use `demux/work/`, retaining existing success-only
   cleanup and `--keep-intermediates` behavior. Prior `.work/` outputs are
   untouched.
-- Both scripts pass `bash -n`; a mocked-tool test verifies successful output,
-  cleanup, flagged retention and failure preservation for both demux methods.
 - Driver `--keep-intermediates` forwards to demux/preprocessing and enables
   Nextflow `-resume` only when flagged. Demux/preprocessing completion and
   downstream read fingerprints exclude top-level `work/`.
@@ -624,29 +605,16 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
   targets remove only `work/` and `.nextflow/cache/` before completion recording.
   Failures/skips retain work; logs, results, other metadata and external caches
   remain. Cleanup refuses symlinked scratch or published links into scratch.
-- Driver tests verify forwarding/dry-run, both resume modes, scratch-independent
-  skips and published-file change detection; Pylance signature checks pass.
-- All 24 driver tests pass after cleanup integration, including failure work
-  preservation, default cleanup, flagged retention, safe link refusal and skips.
-  Developer end-to-end validation in both modes remains pending; repeat each
-  command unchanged with separate logs before closing M9e.
-- Carry-over from M9d: verify unchanged-run stage skips and ASV-table/log
-  regeneration on a fresh developer run after retention integration.
-  The earlier Illumina record predates the preprocessing source change;
-  do not rewrite its fingerprints. Final fixture capture updates need approval.
-
-- Standardize stage-owned scratch in a step-level `work/` directory; route
-  Porechop ABI temporary files there instead of the project directory.
-- Add pipeline-wide `--keep-intermediates`: retain work across all stages,
-  including demux and ampliseq, and enable Nextflow `-resume` only with it.
-  Without the flag, omit `-resume` and remove stage-owned work after success.
-- Cleanup follows successful execution only; a failed step stops before
-  cleanup and leaves its work intact. Never delete published results.
-- Retain intermediates for all manual integration tests. Review completion
-  fingerprints and rerun behavior under both retention modes; this replaces
-  the current always-retain Nextflow work/always-resume policy.
-- **Review gate:** approve exact stage work ownership and cleanup paths before
-  coding, then verify retention, failure and restart behavior.
+- Five preprocessing and 24 driver tests pass, covering routing, retention,
+  failure preservation, link refusal, fingerprints and skips. Both demux scripts
+  pass `bash -n`; CLI, Pylance signature and whitespace checks pass.
+- Developer runs `results/m9e_keep` and `results/m9e_clean` pass in both modes:
+  all input/output records match, work/cache retention or removal is correct,
+  logs/results remain, and FASTQ records and ASV/assignment tables match M9d.
+  Each unchanged repeat skips demux, preprocessing and all four targets;
+  aggregation reruns and both tables/provenance log have newer timestamps.
+  The final unimplemented-stage exit is expected.
+- Developer approved closure; M9d repeat-run verification is complete.
 
 ## M10 - Read-count accounting
 
@@ -656,7 +624,40 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 assignment, shared preprocessing, target inference and sequence/assignment QC.
 Keep this separate from ASV and sample summaries, in a dedicated script.
 
+### M10a - Preprocessing counting
+
+[~]
+
+- Preprocessing streams compressed four-line records and writes
+  `preprocessed/read_counts.tsv` after all samples succeed, before cleanup.
+  Columns: `sample_id`, `input_reads`, `porechop_reads`, `chopper_reads`,
+  in manifest order. Missing inputs have blank counts; empty inputs have 0
+  input reads and blank downstream counts. Measured empty outputs have 0.
+  Counts do not depend on retention; failed runs publish no completed table.
+- Six preprocessing tests pass: distinct measured stage counts, missing/empty
+  inputs, measured zero output, retention-mode parity, incomplete records and
+  tool failure preservation. Pylance and whitespace checks pass.
+- **Review gate:** developer approves the count output and verification.
+
+### M10b - QC labelling cleanup
+
+[ ]
+
+- Revisit sequence and assignment QC labelling before read-count aggregation.
+  Detailed scope, output columns and pass rules will be agreed separately;
+  do not implement the previously proposed label-column addition in isolation.
+- **Review gate:** agree the labelling contract, then review implementation.
+
+### M10c - Read counts aggregation
+
+[ ]
+
+Depends on M10a counts and the M10b QC contract. Implement one standalone
+aggregation script and one feature test; no driver wiring or plotting.
+
 **Tasks**
+- Scope any additional read-flow fixture captures with the developer before
+  replacing frozen data; M9 runs are available as validation evidence.
 - Aggregate the raw-input count, `demux/demux_stats.txt`, shared preprocessing
   input/output counts, per-target `overall_summary.tsv`, Savont feature counts
   and assignment QC.
@@ -681,10 +682,13 @@ Keep this separate from ASV and sample summaries, in a dedicated script.
 - Keep primer-selection, Savont and accepted-assignment counts target-specific.
   Targets receive the same sample reads: do not sum shared preprocessing counts
   across targets or assume target branches partition the reads.
-- Include read counts before and after sequence and assignment QC. An
-  assignment passes when both `sequence_qc_labels` and `qc_labels` are blank;
-  sum its `read_count` once. QC labels may overlap, so per-label rejected
-  counts are not additive. Do not introduce new acceptance thresholds.
+- Include read counts before QC, after sequence QC and after both sequence
+  and assignment QC, using the pass rules agreed in M10b. Sum each passing
+  assignment's `read_count` once per subtotal. No per-label rejection rows
+  or new acceptance thresholds.
+- Write a hierarchical `read_flow.tsv` with `node_id`, `parent_id`, `stage`,
+  `first_barcode`, `second_barcode`, `sample_id`, `target`, `label` and
+  `read_count`; no percentages initially. Final QC stages follow M10b.
 - Test expected/unexpected pairs, partial classification, missing values and
   reconciliation warnings using small fixtures approved before capture.
 

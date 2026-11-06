@@ -538,7 +538,7 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 
 ### M9a - Conda tools and configuration
 
-[~]
+[x]
 
 - Add the pinned tools to the single environment; include an optional
   `preprocess` configuration section for tool options, omitted to use tool
@@ -546,18 +546,20 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 - Verify a fresh environment solve with Python 3.12 and the existing pipeline
   dependencies.
 - Conda dry-run resolves Python 3.12.16, Porechop ABI 0.5.0post1, Chopper
-  0.12.0b and Nextflow 26.04.7 without conflicts.
-- **Review gate:** developer approves environment resolution and config shape.
+  0.12.0b and Nextflow 26.04.7 without conflicts. The recreated environment
+  reports Porechop ABI 0.5.0 and Chopper 0.12.0.
 
 ### M9b - Standalone preprocessing script
 
-[ ]
+[x]
 
 - Add a standalone script that processes expected manifest sample FASTQs from
   demultiplexing through Porechop ABI then Chopper, once per sample.
 - Use explicit paths, shared threads and tool defaults; pass tool failures
-  through. Add focused tests with mocked executables.
-- **Review gate:** developer approves the script interface and output contract.
+  through. Add focused tests with mocked executables. The script and tests are
+  implemented; both focused tests pass.
+- Developer approved the script interface and output contract after focused
+  preprocessing and input-preparation tests passed.
 
 ### M9c - Pipeline integration and restart
 

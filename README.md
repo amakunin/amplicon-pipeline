@@ -83,6 +83,26 @@ supported. Summary settings are not passed to ampliseq.
 Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 [provenance notes](assets/barcodes/README.md).
 
+## Standalone read preprocessing
+
+The preprocessing script is currently standalone; driver integration is planned
+for M9c. Given the manifest and demultiplexed FASTQs, it runs Porechop ABI then
+Chopper once per nonempty expected sample:
+
+```bash
+python scripts/preprocess_reads.py \
+    --manifest manifest.tsv --config-dir config_dir \
+    --demux-dir output_dir/demux --output-dir output_dir/preprocessed
+```
+
+Outputs retain the demultiplexed FASTQ filenames. Missing and empty expected
+samples are listed in `excluded_samples.tsv`. The output directory must not
+already exist; preprocessing does not overwrite prior outputs or resume a
+partial run. Optional `preprocess.porechop_abi_options` and
+`preprocess.chopper_options` in `pipeline.yaml` are passed as shell-style
+argument strings; omitted or empty values use tool defaults. Both tools use
+the shared `threads` value.
+
 ## Outputs
 
 ```text

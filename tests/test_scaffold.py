@@ -31,11 +31,29 @@ from run_pipeline import (
 
 
 class ConfigManifestTests(unittest.TestCase):
+    def test_legacy_barcode_mapping_settings_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            config = run_pipeline.yaml.safe_load(
+                (FIXTURE / "config/pipeline.yaml").read_text(),
+            )
+            for key in (
+                "ont_barcode_mapping", "front_barcode_mapping", "reverse_barcode_mapping",
+            ):
+                with self.subTest(key=key):
+                    config["demux"][key] = None
+                    (directory / "pipeline.yaml").write_text(
+                        run_pipeline.yaml.safe_dump(config),
+                    )
+                    with self.assertRaisesRegex(ValueError, "place mapping TSVs in demux.barcode_dir"):
+                        load_config(directory)
+                    del config["demux"][key]
+
     def test_load_fixture_config(self) -> None:
         config, targets = load_config(FIXTURE / "config")
         self.assertEqual(config["demux"]["method"], "illumina")
         self.assertEqual(
-            config["demux"]["reverse_barcode_mapping"],
+            run_pipeline.barcode_mapping_paths(config)["rear_barcode"],
             ROOT / "assets/barcodes/Sanger_custom_barcode_R.tsv",
         )
         self.assertEqual(config["demux"]["barcode_dir"], ROOT / "assets/barcodes")
@@ -66,7 +84,7 @@ class ConfigManifestTests(unittest.TestCase):
                 "demux:\n"
                 "  method: hybrid\n"
                 "  dorado_exec: bin/dorado\n"
-                "  reverse_barcode_mapping: null\n"
+                "  barcode_dir: barcodes\n"
             )
             config, targets = load_config(config_dir)
 
@@ -80,7 +98,7 @@ class ConfigManifestTests(unittest.TestCase):
                 config["demux"]["dorado_exec"],
                 (config_dir / "bin/dorado").resolve(),
             )
-            self.assertIsNone(config["demux"]["reverse_barcode_mapping"])
+            self.assertEqual(config["demux"]["barcode_dir"], config_dir / "barcodes")
             self.assertEqual(
                 targets["COI"]["sintax_ref"],
                 str((config_dir / "refs/legacy.fasta").resolve()),
@@ -102,9 +120,6 @@ class ConfigManifestTests(unittest.TestCase):
         )
         self.assertEqual(samples[0]["well_id"], "A12")
         config["demux"]["method"] = "hybrid"
-        config["demux"]["ont_barcode_mapping"] = (
-            ROOT / "assets/barcodes/ONT_nb24_barcode.tsv"
-        )
         self.assertEqual(
             read_manifest(FIXTURE / "manifest.tsv", config)[0]["barcode_indices"],
             {"ont_barcode": "10", "rear_barcode": "89"},
@@ -213,7 +228,7 @@ class CommandRestartTests(unittest.TestCase):
             directory = Path(temporary)
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
-                keep_intermediates=False,
+                keep_intermediates=True,
                 config_dir=FIXTURE / "config", manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=directory, profile="local",
             )
@@ -230,11 +245,11 @@ class CommandRestartTests(unittest.TestCase):
                 run_pipeline.preprocess_fingerprints(config, args, command), baseline,
             )
             shutil.rmtree(scratch)
-            args.keep_intermediates = True
-            self.assertEqual(
-                run_pipeline.preprocess_command(args), command + ["--keep-intermediates"],
-            )
             args.keep_intermediates = False
+            self.assertEqual(
+                run_pipeline.preprocess_command(args), command[:-1],
+            )
+            args.keep_intermediates = True
             config["summary"]["common"]["max_locov"] += 1
             config["ampliseq"]["targets"]["CytB"]["sintax_cutoff"] = 0.9
             args.profile = "lsf"
@@ -321,10 +336,6 @@ class CommandRestartTests(unittest.TestCase):
                 name: settings["ampliseq"]["targets"][name] for name in ("COI", "CytB")
             }
             settings["demux"]["barcode_dir"] = str(barcodes)
-            for key in ("front_barcode_mapping", "reverse_barcode_mapping"):
-                settings["demux"][key] = str(
-                    barcodes / Path(settings["demux"][key]).name
-                )
             for target, parameters in settings["ampliseq"]["targets"].items():
                 reference = directory / f"{target}.fasta"
                 reference.write_text(">ref\nACGT\n")
@@ -646,9 +657,6 @@ class CommandRestartTests(unittest.TestCase):
                 self.assertFalse((target_dir / ".nextflow/cache").exists())
                 self.assertEqual((target_dir / ".nextflow.log").read_text(), "log")
                 self.assertEqual((target_dir / ".nextflow/history").read_text(), "metadata")
-                run_ampliseq(config, args)
-                self.assertEqual(len(nextflow_commands), 8)
-
             self.assertNotIn("-resume", nextflow_commands[0])
             self.assertTrue(all("-resume" in command for command in nextflow_commands[1:-1]))
             self.assertNotIn("-resume", nextflow_commands[-1])
@@ -694,7 +702,7 @@ class CommandRestartTests(unittest.TestCase):
             run_fastq.write_bytes(b"raw run")
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
-                keep_intermediates=False,
+                keep_intermediates=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -751,7 +759,7 @@ class CommandRestartTests(unittest.TestCase):
             run_fastq.write_bytes(b"raw run")
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
-                keep_intermediates=False,
+                keep_intermediates=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -796,6 +804,60 @@ class CommandRestartTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_fresh_mode_never_fingerprints_or_writes_records(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            argv = [
+                "run_pipeline.py", str(FIXTURE / "run.fastq.gz"),
+                str(FIXTURE / "manifest.tsv"), str(FIXTURE / "config"), str(output),
+            ]
+            def run(command, **kwargs):
+                if "demux_" in command[1] or "preprocess_reads.py" in command[1]:
+                    Path(command[command.index("--output-dir") + 1]).mkdir(parents=True)
+                elif "prepare_inputs.py" in command[1]:
+                    target = command[command.index("--target") + 1]
+                    (output / "ampliseq" / target).mkdir(parents=True)
+                elif command[0] == "nextflow":
+                    (kwargs["cwd"] / "results").mkdir()
+                    self.assertNotIn("-resume", command)
+                return subprocess.CompletedProcess(command, 0)
+
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(run_pipeline, "check_nextflow"),
+                mock.patch.object(run_pipeline.subprocess, "run", side_effect=run),
+                mock.patch.object(run_pipeline, "sha256_file", side_effect=AssertionError("hashing")),
+                mock.patch.object(run_pipeline, "output_fingerprints", side_effect=AssertionError("hashing")),
+                mock.patch.object(run_pipeline, "demux_fingerprints", side_effect=AssertionError("hashing")),
+                mock.patch.object(run_pipeline, "preprocess_fingerprints", side_effect=AssertionError("hashing")),
+                mock.patch.object(run_pipeline, "target_fingerprints", side_effect=AssertionError("hashing")),
+                mock.patch.object(run_pipeline, "write_completion_record") as write,
+                mock.patch("builtins.print") as progress,
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    run_pipeline.main()
+                self.assertEqual(raised.exception.code, 1)
+                write.assert_not_called()
+                progress.assert_any_call("Validating configuration and manifest", flush=True)
+                progress.assert_any_call("Input validation complete: 5 samples", flush=True)
+                self.assertFalse(list(output.rglob("*completion.json")))
+                with mock.patch.object(run_pipeline.subprocess, "run") as commands:
+                    with self.assertRaises(SystemExit):
+                        run_pipeline.main()
+                    commands.assert_not_called()
+
+    def test_hashing_progress_identifies_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "input"
+            path.write_bytes(b"abc")
+            with mock.patch("builtins.print") as progress:
+                self.assertEqual(
+                    run_pipeline.sha256_file(path),
+                    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                )
+            progress.assert_any_call(f"Fingerprinting: {path} (3 bytes)", flush=True)
+            progress.assert_any_call(f"Fingerprint complete: {path}", flush=True)
+
     def test_help(self) -> None:
         result = subprocess.run(
             [sys.executable, str(ROOT / "run_pipeline.py"), "--help"],
@@ -829,12 +891,13 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             argv = [
                 "run_pipeline.py",
+                "--keep-intermediates",
                 str(Path(temporary) / "run.fastq.gz"),
                 str(FIXTURE / "manifest.tsv"),
                 str(FIXTURE / "config"),
                 str(Path(temporary) / "out"),
             ]
-            shutil.copyfile(FIXTURE / "run.fastq.gz", argv[1])
+            shutil.copyfile(FIXTURE / "run.fastq.gz", argv[2])
             target_dir = Path(temporary) / "out/ampliseq/CytB"
             config, targets = load_config(FIXTURE / "config")
             config["ampliseq"]["targets"] = {"CytB": config["ampliseq"]["targets"]["CytB"]}
@@ -887,7 +950,7 @@ class CliTests(unittest.TestCase):
                         "scripts.count_reads.load_config",
                         return_value=(config, config["ampliseq"]["targets"]),
                     ):
-                        count_reads(Path(argv[1]), FIXTURE / "manifest.tsv",
+                        count_reads(Path(argv[2]), FIXTURE / "manifest.tsv",
                                     FIXTURE / "config", Path(argv[-1]))
                     return subprocess.CompletedProcess(command, 0)
                 return real_run(command, **kwargs)
@@ -916,7 +979,7 @@ class CliTests(unittest.TestCase):
                 ]
                 self.assertEqual(commands[4], expected_summary)
                 expected_counts = run_pipeline.read_count_command(SimpleNamespace(
-                    run_fastq_gz=Path(argv[1]), manifest_tsv=FIXTURE / "manifest.tsv",
+                    run_fastq_gz=Path(argv[2]), manifest_tsv=FIXTURE / "manifest.tsv",
                     config_dir=FIXTURE / "config", output_dir=Path(argv[-1]),
                 ))
                 self.assertEqual(commands[5], expected_counts)
@@ -951,7 +1014,7 @@ class CliTests(unittest.TestCase):
 
     def test_asv_summary_failure_propagates(self) -> None:
         argv = [
-            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            "run_pipeline.py", str(FIXTURE / "run.fastq.gz"), str(FIXTURE / "manifest.tsv"),
             str(FIXTURE / "config"), "out",
         ]
         failure = subprocess.CalledProcessError(2, ["summarise_asvs.py"])
@@ -974,7 +1037,7 @@ class CliTests(unittest.TestCase):
     def test_read_count_failure_propagates(self) -> None:
         failure = subprocess.CalledProcessError(2, ["count_reads.py"])
         argv = [
-            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            "run_pipeline.py", str(FIXTURE / "run.fastq.gz"), str(FIXTURE / "manifest.tsv"),
             str(FIXTURE / "config"), "out",
         ]
         with (
@@ -995,7 +1058,7 @@ class CliTests(unittest.TestCase):
 
     def test_preprocess_failure_stops_before_ampliseq(self) -> None:
         argv = [
-            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            "run_pipeline.py", str(FIXTURE / "run.fastq.gz"), str(FIXTURE / "manifest.tsv"),
             str(FIXTURE / "config"), "out",
         ]
         failure = subprocess.CalledProcessError(7, ["preprocess_reads.py"])

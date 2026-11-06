@@ -24,13 +24,15 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
     demux = config["demux"]
     if demux["method"] not in ("hybrid", "illumina"):
         raise ValueError("demux.method must be 'hybrid' or 'illumina'")
-    for key in (
-        "dorado_exec",
-        "barcode_dir",
-        "ont_barcode_mapping",
-        "front_barcode_mapping",
-        "reverse_barcode_mapping",
-    ):
+    obsolete = {
+        "ont_barcode_mapping", "front_barcode_mapping", "reverse_barcode_mapping",
+    } & demux.keys()
+    if obsolete:
+        raise ValueError(
+            f"Obsolete demux settings: {', '.join(sorted(obsolete))}; "
+            "remove them and place mapping TSVs in demux.barcode_dir"
+        )
+    for key in ("dorado_exec", "barcode_dir"):
         if key in demux and demux[key] is not None:
             demux[key] = (config_dir / demux[key]).resolve()
 
@@ -46,6 +48,19 @@ def load_config(config_dir: Path) -> tuple[dict[str, Any], dict[str, dict[str, A
     return config, targets
 
 
+def barcode_mapping_paths(config: dict[str, Any]) -> dict[str, Path]:
+    directory = config["demux"]["barcode_dir"]
+    first = (
+        ("ont_barcode", "ONT_nb24_barcode.tsv")
+        if config["demux"]["method"] == "hybrid"
+        else ("front_barcode", "Sanger_custom_barcode_F.tsv")
+    )
+    return {
+        first[0]: directory / first[1],
+        "rear_barcode": directory / "Sanger_custom_barcode_R.tsv",
+    }
+
+
 def load_barcode_mapping(path: Path) -> dict[str, str]:
     with path.open(newline="") as handle:
         return {
@@ -57,26 +72,10 @@ def load_barcode_mapping(path: Path) -> dict[str, str]:
 def read_manifest(
     manifest_path: Path, config: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    method = config["demux"]["method"]
-    barcode_mappings = (
-        {
-            "ont_barcode": load_barcode_mapping(
-                config["demux"]["ont_barcode_mapping"]
-            ),
-            "rear_barcode": load_barcode_mapping(
-                config["demux"]["reverse_barcode_mapping"]
-            ),
-        }
-        if method == "hybrid"
-        else {
-            "front_barcode": load_barcode_mapping(
-                config["demux"]["front_barcode_mapping"]
-            ),
-            "rear_barcode": load_barcode_mapping(
-                config["demux"]["reverse_barcode_mapping"]
-            ),
-        }
-    )
+    barcode_mappings = {
+        column: load_barcode_mapping(path)
+        for column, path in barcode_mapping_paths(config).items()
+    }
     required_columns = ("sample_id", *barcode_mappings)
     samples = []
     sample_ids = set()
@@ -170,10 +169,12 @@ def ampliseq_command(
 
 
 def sha256_file(path: Path) -> str:
+    print(f"Fingerprinting: {path} ({path.stat().st_size} bytes)", flush=True)
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
+    print(f"Fingerprint complete: {path}", flush=True)
     return digest.hexdigest()
 
 
@@ -223,16 +224,7 @@ def demux_fingerprints(
     demux = config["demux"]
     method = demux["method"]
     barcode_ends = ("R",) if method == "hybrid" else ("F", "R")
-    mapping_keys = (
-        ("ont_barcode_mapping", "reverse_barcode_mapping")
-        if method == "hybrid"
-        else ("front_barcode_mapping", "reverse_barcode_mapping")
-    )
-    resources = [
-        demux[key]
-        for key in mapping_keys
-        if demux.get(key) is not None
-    ]
+    resources = list(barcode_mapping_paths(config).values())
     resources.extend(
         demux["barcode_dir"] / f"Sanger_custom_barcode_{end}.{extension}"
         for end in barcode_ends
@@ -247,7 +239,7 @@ def demux_fingerprints(
     fingerprints = file_fingerprints(paths)
     fingerprints["runtime:demux-config"] = hashlib.sha256(
         json.dumps(
-            {"method": method, **{key: str(demux[key]) for key in mapping_keys}},
+            {"method": method, "barcode_dir": str(demux["barcode_dir"])},
             sort_keys=True,
         ).encode()
     ).hexdigest()
@@ -263,9 +255,15 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     )
     demux_dir = args.output_dir.resolve() / "demux"
     record_path = args.output_dir.resolve() / ".demux-completion.json"
-    fingerprints = demux_fingerprints(config, args, command)
+    print("Starting demultiplexing", flush=True)
+    fingerprints = None
+    if args.keep_intermediates:
+        print("Checking demux fingerprints", flush=True)
+        fingerprints = demux_fingerprints(config, args, command)
 
     if demux_dir.exists():
+        if not args.keep_intermediates:
+            raise SystemExit(f"Refusing existing demux output: {demux_dir}")
         if not record_path.exists():
             raise SystemExit(
                 f"demux output exists without a completion record; "
@@ -292,9 +290,11 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     subprocess.run(command, check=True)
     if not demux_dir.is_dir():
         raise FileNotFoundError(demux_dir)
-    write_completion_record(
-        record_path, completion_record(fingerprints, demux_dir, exclude_work=True),
-    )
+    if fingerprints is not None:
+        write_completion_record(
+            record_path, completion_record(fingerprints, demux_dir, exclude_work=True),
+        )
+    print("Demultiplexing complete", flush=True)
 
 
 def preprocess_command(args: argparse.Namespace) -> list[str]:
@@ -313,16 +313,11 @@ def preprocess_fingerprints(
     config: dict[str, Any], args: argparse.Namespace, command: list[str],
 ) -> dict[str, str]:
     demux = config["demux"]
-    mapping_keys = (
-        ("ont_barcode_mapping", "reverse_barcode_mapping")
-        if demux["method"] == "hybrid"
-        else ("front_barcode_mapping", "reverse_barcode_mapping")
-    )
     fingerprints = file_fingerprints([
         args.manifest_tsv, Path(command[1]),
         Path(__file__).resolve(),
         Path(__file__).resolve().parent / "scripts/prepare_inputs.py",
-        *(demux[key] for key in mapping_keys),
+        *barcode_mapping_paths(config).values(),
     ])
     demux_dir = args.output_dir.resolve() / "demux"
     if not demux_dir.is_dir():
@@ -350,8 +345,14 @@ def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
     command = preprocess_command(args)
     output_dir = args.output_dir.resolve() / "preprocessed"
     record_path = args.output_dir.resolve() / ".preprocess-completion.json"
-    fingerprints = preprocess_fingerprints(config, args, command)
+    print("Starting preprocessing", flush=True)
+    fingerprints = None
+    if args.keep_intermediates:
+        print("Checking preprocessing fingerprints", flush=True)
+        fingerprints = preprocess_fingerprints(config, args, command)
     if output_dir.exists():
+        if not args.keep_intermediates:
+            raise SystemExit(f"Refusing existing preprocessing output: {output_dir}")
         if (
             record_path.exists()
             and json.loads(record_path.read_text())
@@ -366,9 +367,11 @@ def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
     subprocess.run(command, check=True)
     if not output_dir.is_dir():
         raise FileNotFoundError(output_dir)
-    write_completion_record(
-        record_path, completion_record(fingerprints, output_dir, exclude_work=True),
-    )
+    if fingerprints is not None:
+        write_completion_record(
+            record_path, completion_record(fingerprints, output_dir, exclude_work=True),
+        )
+    print("Preprocessing complete", flush=True)
 
 
 def target_fingerprints(
@@ -439,6 +442,7 @@ def run_ampliseq(
 ) -> None:
     ampliseq_dir = args.output_dir.resolve() / "ampliseq"
     for target in config["ampliseq"]["targets"]:
+        print(f"Preparing ampliseq inputs: {target}", flush=True)
         subprocess.run(
             [
                 sys.executable,
@@ -453,15 +457,19 @@ def run_ampliseq(
         )
         target_dir = ampliseq_dir / target
         write_resource_config(target_dir, config["threads"])
-        fingerprints = target_fingerprints(args, config, target, target_dir)
+        fingerprints = None
         record_path = target_dir / ".completion.json"
-        expected_record = completion_record(fingerprints, target_dir / "results")
-        if (
-            record_path.exists()
-            and json.loads(record_path.read_text()) == expected_record
-        ):
-            print(f"Skipping ampliseq for {target}: completion record matches")
-            continue
+        if args.keep_intermediates:
+            print(f"Checking ampliseq fingerprints: {target}", flush=True)
+            fingerprints = target_fingerprints(args, config, target, target_dir)
+            expected_record = completion_record(fingerprints, target_dir / "results")
+            if (
+                record_path.exists()
+                and json.loads(record_path.read_text()) == expected_record
+            ):
+                print(f"Skipping ampliseq for {target}: completion record matches", flush=True)
+                continue
+        print(f"Starting ampliseq: {target}", flush=True)
         subprocess.run(
             ampliseq_command(
                 args.config_dir, target_dir, args.profile, args.keep_intermediates,
@@ -474,9 +482,11 @@ def run_ampliseq(
             raise FileNotFoundError(results_dir)
         if not args.keep_intermediates:
             cleanup_ampliseq_work(target_dir)
-        write_completion_record(
-            record_path, completion_record(fingerprints, results_dir)
-        )
+        if fingerprints is not None:
+            write_completion_record(
+                record_path, completion_record(fingerprints, results_dir)
+            )
+        print(f"Ampliseq complete: {target}", flush=True)
 
 
 def asv_summary_command(
@@ -539,7 +549,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--keep-intermediates", action="store_true",
-        help="Retain stage work and Nextflow cache after success; enable Nextflow resume",
+        help="Retain stage work/cache and enable fingerprinted stage skips and Nextflow resume",
     )
     parser.add_argument(
         "--dry-run",
@@ -547,8 +557,24 @@ def main() -> None:
         help="Print the loaded plan without creating outputs or running analysis",
     )
     args = parser.parse_args()
+    if not args.dry_run:
+        print(
+            f"Starting pipeline: input={args.run_fastq_gz.resolve()}; "
+            f"manifest={args.manifest_tsv.resolve()}; config={args.config_dir.resolve()}; "
+            f"output={args.output_dir.resolve()}; profile={args.profile}; "
+            f"mode={'fingerprinted restart' if args.keep_intermediates else 'fresh, no fingerprinting'}",
+            flush=True,
+        )
+        if not args.keep_intermediates and args.output_dir.exists():
+            parser.exit(status=1, message=f"Output directory exists; refusing to overwrite: {args.output_dir}\n")
+        print("Validating configuration and manifest", flush=True)
     config, _ = load_config(args.config_dir)
     samples = read_manifest(args.manifest_tsv, config)
+    if not args.dry_run:
+        for path in (args.run_fastq_gz, args.config_dir / "ampliseq.config"):
+            if not path.is_file():
+                raise FileNotFoundError(path)
+        print(f"Input validation complete: {len(samples)} samples", flush=True)
     command = demux_command(
         config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
     )
@@ -566,11 +592,15 @@ def main() -> None:
         print(f"ASV summary command: {shlex.join(summary_command)}")
         print(f"Read count command: {shlex.join(read_count_command(args))}")
         return
+    print("Checking Nextflow", flush=True)
     check_nextflow()
+    print("Nextflow check complete", flush=True)
     run_demux(config, args)
     run_preprocess(config, args)
     run_ampliseq(config, args)
+    print("Starting ASV aggregation and QC", flush=True)
     subprocess.run(summary_command, check=True)
+    print("Starting read-flow accounting", flush=True)
     subprocess.run(read_count_command(args), check=True)
     parser.exit(
         status=1,

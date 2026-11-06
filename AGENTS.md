@@ -99,7 +99,7 @@ Sample summaries and plotting remain placeholders.
   Distinguish no reads, preprocessing loss, no ASVs, unresolved taxonomy, QC
   rejection and processing failure. Keep raw counts and classifications next
   to acceptance flags and reasons.
-- **Restart handling** uses SHA-256 fingerprints of relevant source inputs,
+- **Restart handling** is opt-in with `--keep-intermediates`, using SHA-256 fingerprints of relevant source inputs,
   stage-specific effective configuration, barcode/reference resources and
   generated stage inputs. Unrelated configuration changes do not invalidate
   upstream stages.
@@ -111,6 +111,10 @@ Sample summaries and plotting remain placeholders.
   `work/` is excluded from output and downstream read fingerprints. Write
   records atomically only after success. ASV aggregation always regenerates
   its tables and provenance log, including when ampliseq targets are skipped.
+  Without the flag, require a nonexistent analysis output directory, do not
+  hash or read/write completion records, and never skip stages. Dry-run does
+  not hash or enforce output-directory absence. Startup/validation/stage and
+  per-file fingerprint progress messages are flushed.
 - **Never delete previous results** automatically, including on failed or
   changed runs.
 - **Missing samples are reported**, never silently treated as success.

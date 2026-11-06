@@ -83,6 +83,13 @@ Separate target YAML files and the old top-level `targets` layout are no longer
 supported. Summary settings are not passed to ampliseq.
 Bundled barcode files are in [assets/barcodes/](assets/barcodes/); see their
 [provenance notes](assets/barcodes/README.md).
+`demux.barcode_dir` also supplies manifest mappings: `Sanger_custom_barcode_R.tsv`
+and either `Sanger_custom_barcode_F.tsv` (Illumina) or `ONT_nb24_barcode.tsv`
+(hybrid). Mapping TSVs are fingerprinted alongside the demux resources.
+The former `front_barcode_mapping`, `reverse_barcode_mapping` and
+`ont_barcode_mapping` keys are rejected; remove them and move any custom mapping
+files into `barcode_dir` under these names. Use a fresh output directory to
+validate the configuration migration; previous results are never rewritten.
 
 ## Read preprocessing
 
@@ -248,6 +255,15 @@ are stored.
 
 ### Restart handling
 
+Without `--keep-intermediates`, the analysis output directory must not exist,
+even if empty. No fingerprints or completion records are computed/read/written,
+and no stages skip. Successful runs still clean stage-owned scratch.
+Dry-run does not hash, create outputs or reject an existing output directory.
+Startup, input-validation and stage messages are flushed to the terminal;
+retained-mode fingerprinting reports each file's path/size and completion.
+
+With `--keep-intermediates`:
+
 Demultiplexing is skipped only when its record matches the run, manifest,
 configuration, barcode resources and all published files. An existing partial
 or stale demux directory causes a clear error and is left untouched.
@@ -263,7 +279,7 @@ and published result files match; otherwise Nextflow runs again.
 Pipeline `--keep-intermediates` retains stage work and Nextflow cache and
 enables Nextflow `-resume`; without it Nextflow runs without `-resume`.
 Each target uses its own `work/`. After success without the flag, only that
-target's `work/` and `.nextflow/cache/` are removed, before completion recording.
+target's `work/` and `.nextflow/cache/` are removed.
 Failures and skipped targets are not cleaned. Logs, results, other metadata
 and external caches remain. Cleanup refuses symlinked scratch directories or
 published links into scratch; use copy publication or retain intermediates.

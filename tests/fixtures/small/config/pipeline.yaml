@@ -4,8 +4,6 @@ demux:
   method: illumina
   dorado_exec: /software/sciops/external/ont-dorado/0.8.2/bin/dorado
   barcode_dir: ../../../../assets/barcodes
-  front_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_F.tsv
-  reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv
 
 preprocess:
   porechop_abi_options: ""

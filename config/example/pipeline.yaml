@@ -5,8 +5,6 @@ demux:
   method: hybrid  # hybrid or illumina.
   dorado_exec: null  # Optional path to dorado; default: dorado from PATH.
   barcode_dir: ../../assets/barcodes
-  ont_barcode_mapping: ../../assets/barcodes/ONT_nb24_barcode.tsv
-  reverse_barcode_mapping: ../../assets/barcodes/Sanger_custom_barcode_R.tsv
 
 # Optional tool-specific arguments; empty strings use tool defaults.
 # Preprocessing is shared across targets and uses the top-level threads value.

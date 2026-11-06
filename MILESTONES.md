@@ -700,6 +700,24 @@ Existing frozen fixtures and historical outputs remain unchanged.
 
 [ ]
 
+- Startup, validation and stage messages now flush to the terminal;
+  fingerprinting reports file paths/sizes and completion.
+  Without `--keep-intermediates`, require an absent analysis output directory
+  and disable all hashing/completion records/skips. Retained mode keeps
+  fingerprinted restart; dry-run neither hashes nor rejects existing outputs.
+  Success-only scratch cleanup is unchanged.
+- All 55 offline tests pass; fresh-mode tests forbid hashing and record writes,
+  verify existing-output refusal and flushed validation/hash progress.
+  Retained-mode restart tests still pass; Pylance reports no errors.
+
+- Demux configuration now uses only `barcode_dir` for barcode resources and
+  manifest mappings. Illumina derives F/R TSVs; hybrid derives ONT_nb24/R TSVs.
+  Legacy mapping-path keys fail with a migration message. Existing run configs
+  need migration and a fresh output directory; prior results remain unchanged.
+- All 53 offline tests pass after migration, including both manifest methods,
+  legacy-key rejection and mapping fingerprint invalidation; Pylance reports
+  no errors and whitespace checks pass.
+
 **Goal:** validate the complete pipeline on a real ONT run at production scale.
 
 **Tasks**

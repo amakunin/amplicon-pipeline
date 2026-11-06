@@ -497,6 +497,17 @@ def asv_summary_command(
     ]
 
 
+def read_count_command(args: argparse.Namespace) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/count_reads.py"),
+        "--run-fastq", str(args.run_fastq_gz.resolve()),
+        "--manifest", str(args.manifest_tsv.resolve()),
+        "--config-dir", str(args.config_dir.resolve()),
+        "--output-dir", str(args.output_dir.resolve()),
+    ]
+
+
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
     print(f"Method: {config['demux']['method']}")
     print(f"Targets: {', '.join(config['ampliseq']['targets'])}")
@@ -553,12 +564,14 @@ def main() -> None:
             )
             print(f"Ampliseq command ({target}): {shlex.join(ampliseq)}")
         print(f"ASV summary command: {shlex.join(summary_command)}")
+        print(f"Read count command: {shlex.join(read_count_command(args))}")
         return
     check_nextflow()
     run_demux(config, args)
     run_preprocess(config, args)
     run_ampliseq(config, args)
     subprocess.run(summary_command, check=True)
+    subprocess.run(read_count_command(args), check=True)
     parser.exit(
         status=1,
         message="Stages after ASV aggregation are not implemented.\n",

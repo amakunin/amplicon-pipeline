@@ -618,15 +618,18 @@ and retained/default-cleanup end-to-end runs with unchanged-command repeats.
 
 ## M10 - Read-count accounting
 
-[ ]
+[x]
 
 **Goal:** a hierarchical read-flow report from the raw run through barcode
 assignment, shared preprocessing, target inference and sequence/assignment QC.
 Keep this separate from ASV and sample summaries, in a dedicated script.
 
+Developer approved closure after `results/m10c_illumina` end-to-end review.
+Existing frozen fixtures and historical outputs remain unchanged.
+
 ### M10a - Preprocessing counting
 
-[~]
+[x]
 
 - Preprocessing streams compressed four-line records and writes
   `preprocessed/read_counts.tsv` after all samples succeed, before cleanup.
@@ -637,11 +640,10 @@ Keep this separate from ASV and sample summaries, in a dedicated script.
 - Six preprocessing tests pass: distinct measured stage counts, missing/empty
   inputs, measured zero output, retention-mode parity, incomplete records and
   tool failure preservation. Pylance and whitespace checks pass.
-- **Review gate:** developer approves the count output and verification.
 
 ### M10b - QC labelling cleanup
 
-[~]
+[x]
 
 - QC is consolidated into `summarise_asvs.py`; standalone QC scripts are
   retired. Required `--config-dir` supplies existing thresholds. The driver
@@ -662,75 +664,39 @@ Keep this separate from ASV and sample summaries, in a dedicated script.
   checks pass. Aggregation-only validation on `results/m9e_keep` preserves
   all sequence/taxonomy/count values (4 ASVs, 7 assignments) and verifies
   unique-ASV totals, using temporary outputs without changing that run.
-- **Review gate:** review canonical outputs before closing M10b.
 
 ### M10c - Read counts aggregation
 
-[ ]
+[x]
 
-Depends on M10a counts and the M10b QC contract. Implement one standalone
-aggregation script and one feature test; no driver wiring or plotting.
+- Standalone `scripts/count_reads.py` writes `summary/read_flow.tsv` from raw
+  FASTQ, demux stats, persistent preprocessing counts, target summaries/features
+  and canonical QC. Barcode branches sort deterministically; targets follow
+  configuration order. No percentages or per-label rows.
+- Driver runs counting after canonical aggregation on every invocation;
+  dry-run prints the command and failures propagate.
+- Missing observations stay blank, NA is preserved and measured zero stays 0.
+  Reconciliation warnings retain independent observations; target branches
+  are not assumed to partition shared reads.
+- Barcode branches distinguish expected/unexpected pairs and unmatched ends;
+  rear-barcode expectations are evaluated within each first-barcode context.
+  Shared counts appear once; target-specific primer/Savont/QC counts remain
+  separate. Each passing assignment contributes once per QC subtotal.
+- Schema: `node_id`, `parent_id`, `stage`, `first_barcode`, `second_barcode`,
+  `sample_id`, `target`, `label`, `read_count`.
+- Synthetic tests pass for both demux methods, exact hierarchy/schema, partial
+  and unexpected pairs, missing/NA observations, independent QC checks and
+  reconciliation warnings. Invalid flags preserve the existing report.
+  CLI, Pylance and whitespace checks pass.
+- `results/m10c_illumina` end-to-end inspection passes: persistent stage counts
+  independently match FASTQs; all completion fingerprints match; canonical
+  tables match M9 (4 ASVs, 7 assignments). The 168-row hierarchy accounts for
+  931 raw reads, preserves absent-sample blanks and reports 150 both-QC-passing
+  CytB reads for BFHK_023_A2. No reconciliation warnings were emitted.
+  BFHK_023_H8 loses 244 -> 234 reads in Porechop, explaining the historical
+  demux/Chopper-input difference rather than normalizing it away.
 
-**Tasks**
-- Scope any additional read-flow fixture captures with the developer before
-  replacing frozen data; M9 runs are available as validation evidence.
-- Aggregate the raw-input count, `demux/demux_stats.txt`, shared preprocessing
-  input/output counts, per-target `overall_summary.tsv`, Savont feature counts
-  and the canonical ASV/assignment QC columns.
-- Represent branches explicitly: run -> first barcode -> second barcode or
-  unmatched -> manifest sample -> Porechop ABI -> Chopper -> target ->
-  ampliseq preprocessing -> Savont -> QC-passing assignments. Preserve
-  barcode-level counts without sample matches.
-- Distinguish unmatched first barcodes, matched first barcodes with unmatched
-  second barcodes, unexpected first barcodes, unexpected complete pairs and
-  expected complete pairs. Evaluate second-barcode expectations within their
-  first-barcode context; individually expected barcodes can form an unexpected
-  pair. Use expected/unexpected, not correct/misclassified: manifest membership
-  does not establish biological origin.
-- Reconstruct first-barcode totals from their descendants. Compare the
-  demux-reported total with an independent raw-input read count; do not assume
-  conservation. Reconcile adjacent stages as well as counts across targets.
-- Record Porechop ABI and Chopper counts once per sample at the shared
-  preprocessing stage. Keep target-level counts, including
-  `cutadapt_total_processed`, target-specific; warn on disagreements and never
-  silently choose one target. Preserve missing values and `NA` separately from
-  zero.
-- Keep primer-selection, Savont and accepted-assignment counts target-specific.
-  Targets receive the same sample reads: do not sum shared preprocessing counts
-  across targets or assume target branches partition the reads.
-- Include read counts before QC, after sequence QC and after both sequence
-  and assignment QC, using the pass rules agreed in M10b. Sum each passing
-  assignment's `read_count` once per subtotal. No per-label rejection rows
-  or new acceptance thresholds.
-- Write a hierarchical `read_flow.tsv` with `node_id`, `parent_id`, `stage`,
-  `first_barcode`, `second_barcode`, `sample_id`, `target`, `label` and
-  `read_count`; no percentages initially. Final QC stages follow M10b.
-- Test expected/unexpected pairs, partial classification, missing values and
-  reconciliation warnings using small fixtures approved before capture.
-
-**Observed planning evidence:** the Illumina run in `results/m7a_test`
-(2026-11-02) reports 931 demux reads: 169 first-barcode unmatched, 43
-second-barcode unmatched, 1 unexpected complete pair and 718 expected-pair
-reads. `barcode02_barcode64` is unexpected despite both barcodes occurring in
-the manifest. `barcode08_barcode64` has 244 demux reads, while all target
-summaries report 234 Chopper input reads for `BFHK_023_H8`; investigate rather
-than normalize away this discrepancy. These observations are not thresholds.
-
-**Review gate:** developer approves the hierarchy, output schemas, denominators,
-missing-value handling and reconciliation/warning rules before implementation,
-then reviews the fixture read-flow report.
-
-## M11 - Summary plots
-
-[ ]
-
-**Goal:** `scripts/plot_summary.py` plots from the summary tables.
-
-**Tasks:** agree the plots and the plotting dependency first, then implement.
-
-**Review gate:** developer reviews the plots on real output.
-
-## M12 - Full-scale validation
+## M11 - Full-scale validation
 
 [ ]
 
@@ -746,6 +712,16 @@ then reviews the fixture read-flow report.
 issues are resolved.
 
 **Review gate:** developer approves production-scale behavior for release.
+
+## M12 - Summary plots
+
+[ ]
+
+**Goal:** `scripts/plot_summary.py` plots from the summary tables.
+
+**Tasks:** agree the plots and the plotting dependency first, then implement.
+
+**Review gate:** developer reviews the plots on real output.
 
 ## M13 - First release
 

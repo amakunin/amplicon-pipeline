@@ -51,6 +51,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `scripts/preprocess_reads.py` | Shared per-sample Porechop ABI and Chopper preprocessing |
 | `scripts/prepare_inputs.py` | Per-target ampliseq samplesheet, excluded-sample list and parameter file |
 | `scripts/summarise_asvs.py` | Canonical Savont counts, sequences, taxonomy and QC tables |
+| `scripts/count_reads.py` | Hierarchical read-flow accounting after aggregation |
 | `scripts/summarise_samples.py` | Manifest-driven sample annotations and QC outcomes |
 | `scripts/plot_summary.py` | Plots from summary tables |
 | `config/example/` | Template configuration for users to copy |

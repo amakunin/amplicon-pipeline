@@ -834,7 +834,7 @@ class CliTests(unittest.TestCase):
                 str(FIXTURE / "config"),
                 str(Path(temporary) / "out"),
             ]
-            Path(argv[1]).write_text("raw run")
+            shutil.copyfile(FIXTURE / "run.fastq.gz", argv[1])
             target_dir = Path(temporary) / "out/ampliseq/CytB"
             config, targets = load_config(FIXTURE / "config")
             config["ampliseq"]["targets"] = {"CytB": config["ampliseq"]["targets"]["CytB"]}
@@ -846,7 +846,7 @@ class CliTests(unittest.TestCase):
                         command[command.index("--output-dir") + 1]
                     )
                     demux_dir.mkdir(parents=True)
-                    (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
+                    (demux_dir / "demux_stats.txt").write_text("barcode08_barcode09\t931\n")
                     return subprocess.CompletedProcess(command, 0)
                 if "preprocess_reads.py" in command[1]:
                     preprocessed_dir = Path(command[command.index("--output-dir") + 1])
@@ -854,6 +854,12 @@ class CliTests(unittest.TestCase):
                     (preprocessed_dir / "reads.fastq.gz").write_bytes(b"reads")
                     (preprocessed_dir / "excluded_samples.tsv").write_text(
                         "sample_id\treason\n"
+                    )
+                    (preprocessed_dir / "read_counts.tsv").write_text(
+                        "sample_id\tinput_reads\tporechop_reads\tchopper_reads\n"
+                        "BFHK_023_A2\t931\t342\t314\n"
+                        "BFHK_023_H8\t\t\t\nANLCx_002_A12\t\t\t\n"
+                        "ANLCx_001_A1\t\t\t\nANLCx_001_B1\t\t\t\n"
                     )
                     return subprocess.CompletedProcess(command, 0)
                 if "prepare_inputs.py" in command[1]:
@@ -874,6 +880,15 @@ class CliTests(unittest.TestCase):
                 if command[0] == "nextflow":
                     results_dir = target_dir / "results"
                     shutil.copytree(FIXTURE / "ampliseq/CytB", results_dir)
+                    return subprocess.CompletedProcess(command, 0)
+                if command[1].endswith("count_reads.py"):
+                    from scripts.count_reads import count_reads
+                    with mock.patch(
+                        "scripts.count_reads.load_config",
+                        return_value=(config, config["ampliseq"]["targets"]),
+                    ):
+                        count_reads(Path(argv[1]), FIXTURE / "manifest.tsv",
+                                    FIXTURE / "config", Path(argv[-1]))
                     return subprocess.CompletedProcess(command, 0)
                 return real_run(command, **kwargs)
 
@@ -900,14 +915,19 @@ class CliTests(unittest.TestCase):
                     "--config-dir", str(FIXTURE / "config"),
                 ]
                 self.assertEqual(commands[4], expected_summary)
-                self.assertEqual(len(commands), 5)
+                expected_counts = run_pipeline.read_count_command(SimpleNamespace(
+                    run_fastq_gz=Path(argv[1]), manifest_tsv=FIXTURE / "manifest.tsv",
+                    config_dir=FIXTURE / "config", output_dir=Path(argv[-1]),
+                ))
+                self.assertEqual(commands[5], expected_counts)
+                self.assertEqual(len(commands), 6)
                 self.assertEqual(run.call_args_list[4].kwargs, {"check": True})
                 summary = Path(argv[-1]) / "summary"
                 before = {
                     path.name: path.read_bytes() for path in summary.iterdir()
                 }
                 self.assertEqual(
-                    set(before), {"asvs.tsv", "assignments.tsv", "summarise_asvs.log"}
+                    set(before), {"asvs.tsv", "assignments.tsv", "summarise_asvs.log", "read_flow.tsv"}
                 )
                 self.assertIn(b"0aece8f365778d45", before["asvs.tsv"])
                 self.assertIn(b"length_status", before["asvs.tsv"])
@@ -915,13 +935,14 @@ class CliTests(unittest.TestCase):
                 self.assertIn(b"150\tfalse\tfalse", before["assignments.tsv"])
                 self.assertIn(b"12\tfalse\ttrue", before["assignments.tsv"])
                 (summary / "assignments.tsv").unlink()
+                (summary / "read_flow.tsv").unlink()
                 run.reset_mock()
                 with self.assertRaises(SystemExit) as raised:
                     run_pipeline.main()
                 self.assertEqual(raised.exception.code, 1)
                 self.assertEqual(
                     [call.args[0] for call in run.call_args_list][1:],
-                    [expected_summary],
+                    [expected_summary, expected_counts],
                 )
                 self.assertEqual(
                     {path.name: path.read_bytes() for path in summary.iterdir()},
@@ -949,6 +970,28 @@ class CliTests(unittest.TestCase):
         run.assert_called_once()
         self.assertIn("summarise_asvs.py", run.call_args.args[0][1])
         self.assertEqual(run.call_args.kwargs, {"check": True})
+
+    def test_read_count_failure_propagates(self) -> None:
+        failure = subprocess.CalledProcessError(2, ["count_reads.py"])
+        argv = [
+            "run_pipeline.py", "run.fastq.gz", str(FIXTURE / "manifest.tsv"),
+            str(FIXTURE / "config"), "out",
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(run_pipeline, "check_nextflow"),
+            mock.patch.object(run_pipeline, "run_demux"),
+            mock.patch.object(run_pipeline, "run_preprocess"),
+            mock.patch.object(run_pipeline, "run_ampliseq"),
+            mock.patch.object(run_pipeline.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0), failure,
+            ]) as run,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                run_pipeline.main()
+        self.assertIs(raised.exception, failure)
+        self.assertEqual(run.call_count, 2)
+        self.assertTrue(run.call_args.args[0][1].endswith("count_reads.py"))
 
     def test_preprocess_failure_stops_before_ampliseq(self) -> None:
         argv = [
@@ -1008,8 +1051,16 @@ class CliTests(unittest.TestCase):
                 ]
             summary_command += ["--output-dir", str(output_dir / "summary")]
             summary_command += ["--config-dir", str(FIXTURE / "config")]
+            self.assertIn(
+                f"ASV summary command: {shlex.join(summary_command)}\n", commands,
+            )
+            expected_counts = run_pipeline.read_count_command(SimpleNamespace(
+                run_fastq_gz=Path(directory / "run.fastq.gz"),
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                config_dir=FIXTURE / "config", output_dir=output_dir,
+            ))
             self.assertTrue(commands.endswith(
-                f"ASV summary command: {shlex.join(summary_command)}\n"
+                f"Read count command: {shlex.join(expected_counts)}\n"
             ))
             self.assertEqual(
                 plan,

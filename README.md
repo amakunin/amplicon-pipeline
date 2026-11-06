@@ -276,6 +276,28 @@ without modification; use a fresh output directory for migration validation.
 ASV aggregation always reruns, including when all ampliseq targets are skipped,
 replacing its two summary tables from the current published results.
 
+### Read-flow accounting
+
+The driver runs read counting after aggregation on every invocation and
+prints its command in dry-run. It also runs separately without analysis tools:
+
+```bash
+python scripts/count_reads.py --run-fastq run.fastq.gz \
+    --manifest manifest.tsv --config-dir config_dir --output-dir output_dir
+```
+
+Requires persistent `preprocessed/read_counts.tsv` and canonical summaries.
+Writes `summary/read_flow.tsv` with node/parent IDs, stage, barcode identifiers,
+sample, target, expected/unexpected/unmatched label and read count.
+Barcode branches are sorted; target branches follow configuration order.
+Shared preprocessing appears once per sample; target branches are not additive.
+Missing observations are blank, literal `NA` is preserved and measured zero is 0.
+Savont-reported output and feature-table totals remain separate observations.
+Sequence/both-QC passing counts use the rules above. Reconciliation warnings
+go to stderr without changing counts. Missing required inputs fail explicitly.
+Older runs without persistent preprocessing counts need a new preprocessing run;
+retained intermediates are not used as a fallback.
+
 ## Tests
 
 ```bash

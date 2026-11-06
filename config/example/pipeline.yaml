@@ -12,7 +12,7 @@ demux:
 # Preprocessing is shared across targets and uses the top-level threads value.
 preprocess:
   porechop_abi_options: ""
-  chopper_options: ""
+  chopper_options: "-q 16"
 
 ampliseq:
   # Native parameters; target values replace common values, without concatenation.

@@ -563,43 +563,69 @@ ampliseq, using one Conda environment for pipeline and command-line tools.
 
 ### M9c - Pipeline integration and restart
 
-[~]
+[x]
 
-- Prerequisite correction: Porechop writes a compressed intermediate, then
+- Porechop writes a compressed intermediate, then
   `zcat`, Chopper and `gzip` are directly connected with `subprocess.Popen`.
   Each exit code is checked; children are terminated/reaped on startup failure.
-  Passing a Python gzip handle as subprocess stdout bypassed compression.
-  Four focused tests check compressed output, every stage's failures and
-  startup cleanup. Installed Chopper produces the exact expected decompressed
-  FASTQ, including with spaces in paths; Pylance reports no errors.
-- Developer approved direct subprocess piping and its verification.
 - Example and fixture `ampliseq.common` disable Porechop ABI and Chopper.
 - Input preparation now requires `--preprocessed-dir`; upstream exclusions
   are preserved and empty processed FASTQs remain in the samplesheet for
   ampliseq to handle. Missing nonexcluded files fail before replacing outputs.
-  Developer approved input preparation.
-- Run preprocessing after demultiplexing and before per-target input
-  preparation. Generate each ampliseq samplesheet from the shared preprocessed
-  FASTQs, and skip Porechop/Chopper inside ampliseq.
-- Fingerprint preprocessing inputs, effective configuration and outputs;
-  verify safe reruns and preserve prior results.
 - Driver execution and dry-run include preprocessing; all targets consume its
   shared directory. `.preprocess-completion.json` is written atomically after
   success, skips matching runs and refuses stale/incomplete outputs unchanged.
-- Developer approved the larger driver/test migration step budget.
 - All 44 offline tests and raw/captured fixture checksum checks pass.
-  Pylance reports no errors; whitespace checks pass. Real pipeline validation
-  remains M9d.
-- **Review gate:** developer approves driver integration and restart behavior.
+  Real Chopper output decompresses exactly, including with spaces in paths.
+  Pylance and whitespace checks pass. Developer approved integration;
+  real pipeline validation remains M9d.
 
 ### M9d - Fixture validation
 
+[~]
+
+- Developer runs Dorado and ampliseq; agents inspect supplied outputs only.
+- Illumina is the primary end-to-end record: use a fresh output directory,
+  run all four targets, retain terminal output, demux/preprocessed FASTQs,
+  exclusions, resolved parameters, completion records, Nextflow logs,
+  published results and summary tables. Verify compressed FASTQ integrity,
+  expected sample accounting and shared per-target input paths.
+- Repeat the Illumina command unchanged: demux, preprocessing and completed
+  targets skip; ASV tables and provenance log regenerate. The explicit exit
+  after ASV aggregation remains expected until later stages are implemented.
+- Hybrid smoke check uses a separate directory: developer runs hybrid demux
+  and standalone preprocessing; verify readable compressed FASTQs and expected
+  sample/exclusion handling. No duplicate four-target ampliseq run is required.
+- Record observed counts and outcomes without requiring historical ASV/count
+  equality. Do not regenerate, overwrite or replace frozen fixture data.
+- Initial `results/m9d_illumina` inspection: demux counts match M7a, processed
+  FASTQs are valid, target inputs are shared and completion fingerprints match.
+  CytB changes from 162 assigned reads in two samples to 15 in one; ITS2 and
+  P3 retain their ASVs and 20/35 assigned reads; COI remains empty.
+- This run is not a preprocessing-equivalence test: the script forced `-abi`
+  and Chopper used default quality 0; historical ampliseq commands omitted
+  `-abi` and used `-q 16`. Developer requested matching historical behavior:
+  remove forced inference and configure `-q 16` in example and fixture.
+- Final capture waits for M9e work-directory handling and a developer rerun
+  with aligned options. Existing run and frozen captures remain unchanged.
+- **Review gate:** developer approves the observed preprocessing outputs.
+
+### M9e - Intermediate directories and retention
+
 [ ]
 
-- Validate both demultiplexing methods where available on the small fixture;
-  record preprocessing outcomes and check per-target input reuse.
-- Do not regenerate or edit fixture data.
-- **Review gate:** developer approves the observed preprocessing outputs.
+- Standardize stage-owned scratch in a step-level `work/` directory; route
+  Porechop ABI temporary files there instead of the project directory.
+- Add pipeline-wide `--keep-intermediates`: retain work across all stages,
+  including demux and ampliseq, and enable Nextflow `-resume` only with it.
+  Without the flag, omit `-resume` and remove stage-owned work after success.
+- Cleanup follows successful execution only; a failed step stops before
+  cleanup and leaves its work intact. Never delete published results.
+- Retain intermediates for all manual integration tests. Review completion
+  fingerprints and rerun behavior under both retention modes; this replaces
+  the current always-retain Nextflow work/always-resume policy.
+- **Review gate:** approve exact stage work ownership and cleanup paths before
+  coding, then verify retention, failure and restart behavior.
 
 ## M10 - Read-count accounting
 
@@ -743,3 +769,14 @@ validation; distinguish changes in read recovery from changes in ASV inference.
   after sample-target interpretation; do not infer conflicts from missing ranks.
 - **Review gate:** approve rules and implementation scope before coding, then
   review integrated sample summaries before M10.
+
+### M14d - Pipeline logging
+
+[ ]
+
+- Agree consistent logging across every pipeline stage: concise terminal
+  progress and complete per-stage/sample tool diagnostics retained in logs.
+- Preserve external-tool error messages and nonzero failures; do not hide
+  failures when routing verbose output.
+- **Review gate:** approve log layout and terminal behavior before coding,
+  then verify successful runs and failure diagnostics.

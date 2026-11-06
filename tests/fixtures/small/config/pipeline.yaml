@@ -7,6 +7,10 @@ demux:
   front_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_F.tsv
   reverse_barcode_mapping: ../../../../assets/barcodes/Sanger_custom_barcode_R.tsv
 
+preprocess:
+  porechop_abi_options: ""
+  chopper_options: "-q 16"
+
 ampliseq:
   # Native parameters; target values replace common values, without concatenation.
   common:

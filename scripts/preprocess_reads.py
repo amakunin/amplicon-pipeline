@@ -96,7 +96,7 @@ def preprocess_reads(
             porechop_output = Path(temporary) / "porechop.fastq.gz"
             subprocess.run(
                 [
-                    "porechop_abi", "-abi", *porechop_options,
+                    "porechop_abi", *porechop_options,
                     "-t", threads, "-i", str(reads), "-o", str(porechop_output),
                 ],
                 check=True,

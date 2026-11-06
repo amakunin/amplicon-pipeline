@@ -1,25 +1,20 @@
-"""Sequence QC evidence without external tools or assignment filtering."""
+"""Sequence QC in canonical ASV summaries without external tools."""
 
 import csv
 from pathlib import Path
-import subprocess
-import sys
 import tempfile
 import unittest
 
 import yaml
 
-from scripts.qc_asvs import annotate_asvs, check_frames
-from scripts.summarise_asvs import summarise_asvs
+from scripts.summarise_asvs import annotate_asvs, check_frames, summarise_asvs
 
 
-ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "tests/fixtures/small"
+FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/small"
 
 
 class SequenceQcTests(unittest.TestCase):
     def test_six_frames_and_codon_handling(self) -> None:
-        # Alternate frames contain TAA or TAG; +0 contains CTA, ACT and AGT.
         sequence = "CTAACTAGTTA"
         for shift in range(3):
             forward = "C" * shift + sequence
@@ -30,7 +25,6 @@ class SequenceQcTests(unittest.TestCase):
         self.assertEqual(check_frames("TGATGATGA"), (
             ["+0", "+1", "+2", "-0", "-1", "-2"], [],
         ))
-        # Completing the trailing TA creates a stop, including at the terminus.
         self.assertEqual(check_frames(sequence + "A"), ([], []))
         self.assertEqual(check_frames(sequence + "N"), ([], ["+0"]))
         self.assertEqual(check_frames("TAANNN"), (
@@ -38,34 +32,27 @@ class SequenceQcTests(unittest.TestCase):
         ))
 
     def test_coding_statuses(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            source = directory / "asvs.tsv"
-            source.write_text(
-                "target\tasv_id\tsequence\n"
-                "COI\tone\tCTAACTAGTTA\n"
-                "COI\tnone\tCTAACTAGTTAA\n"
-                "COI\tuncertain\tCTAACTAGTTAN\n"
+        rows = [
+            {"target": "COI", "asv_id": name, "sequence": sequence}
+            for name, sequence in (
+                ("one", "CTAACTAGTTA"), ("none", "CTAACTAGTTAA"),
+                ("uncertain", "CTAACTAGTTAN"),
             )
-            annotate_asvs(source, FIXTURE / "config", directory)
-            with (directory / "asv_qc.tsv").open(newline="") as handle:
-                rows = list(csv.DictReader(handle, delimiter="\t"))
-            self.assertEqual(
-                [(r["coding_status"], r["stop_free_frames"], r["uncertain_frames"])
-                 for r in rows],
-                [("one_stop_free_frame", "+0", ""),
-                 ("no_stop_free_frame", "", ""), ("uncertain", "", "+0")],
-            )
+        ]
+        annotate_asvs(rows, {"COI": {"genetic_code": 5}})
+        self.assertEqual(
+            [(r["coding_status"], r["stop_free_frames"], r["uncertain_frames"])
+             for r in rows],
+            [("one_stop_free_frame", "+0", ""),
+             ("no_stop_free_frame", "", ""), ("uncertain", "", "+0")],
+        )
 
     def test_length_boundaries_and_common_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            settings = yaml.safe_load(
-                (FIXTURE / "config/pipeline.yaml").read_text()
-            )
-            settings["summary"]["common"] = {"min_length": 1}
-            (directory / "pipeline.yaml").write_text(yaml.safe_dump(settings))
-            source = directory / "asvs.tsv"
+            config = yaml.safe_load((FIXTURE / "config/pipeline.yaml").read_text())
+            config["summary"]["common"] = {"min_length": 1}
+            (directory / "pipeline.yaml").write_text(yaml.safe_dump(config))
             cases = [
                 ("COI", 639, "too_short"), ("COI", 641, "unexpected_length"),
                 ("COI", 674, "too_long"),
@@ -76,67 +63,54 @@ class SequenceQcTests(unittest.TestCase):
                 ("P3", 371, "too_short"), ("P3", 372, "pass"),
                 ("P3", 373, "pass"), ("P3", 380, "pass"), ("P3", 381, "too_long"),
             ]
-            with source.open("w", newline="") as handle:
-                writer = csv.writer(handle, delimiter="\t")
-                writer.writerow(["target", "asv_id", "sequence"])
-                for target, length, _ in cases:
-                    writer.writerow([target, str(length), "C" * length])
-            annotate_asvs(source, directory, directory / "summary")
-            with (directory / "summary/asv_qc.tsv").open(newline="") as handle:
-                rows = list(csv.DictReader(handle, delimiter="\t"))
+            rows = [
+                {"target": target, "asv_id": str(length), "sequence": "C" * length}
+                for target, length, _ in cases
+            ]
+            settings = {
+                target: {**config["summary"]["common"], **overrides}
+                for target, overrides in config["summary"]["targets"].items()
+            }
+            annotate_asvs(rows, settings)
             self.assertEqual(
-                [(r["target"], int(r["length"]), r["length_status"]) for r in rows],
-                cases,
+                [(r["target"], r["length"], r["length_status"]) for r in rows], cases,
             )
             self.assertEqual(rows[0]["coding_status"], "multiple_stop_free_frames")
             self.assertEqual(rows[-1]["coding_status"], "not_checked")
-            settings["summary"]["targets"]["COI"]["genetic_code"] = 1
-            (directory / "pipeline.yaml").write_text(yaml.safe_dump(settings))
-            before = (directory / "summary/asv_qc.tsv").read_bytes()
+            output = directory / "summary"
+            summarise_asvs({"CytB": FIXTURE / "ampliseq/CytB"}, output, directory)
+            before = {p.name: p.read_bytes() for p in output.iterdir()}
+            config["summary"]["targets"]["CytB"]["genetic_code"] = 1
+            (directory / "pipeline.yaml").write_text(yaml.safe_dump(config))
             with self.assertRaisesRegex(ValueError, "Only genetic code 5"):
-                annotate_asvs(source, directory, directory / "summary")
-            self.assertEqual((directory / "summary/asv_qc.tsv").read_bytes(), before)
+                summarise_asvs({"CytB": FIXTURE / "ampliseq/CytB"}, output, directory)
+            self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
+            with self.assertRaisesRegex(ValueError, "Conflicting length bounds"):
+                annotate_asvs(rows, {**settings, "COI": {"min_length": 700, "max_length": 600}})
 
-    def test_fixture_annotations_leave_raw_tables_unchanged(self) -> None:
+    def test_fixture_annotations_in_canonical_table(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             summarise_asvs(
                 {target: FIXTURE / "ampliseq" / target
                  for target in ("COI", "CytB", "ITS2", "P3")},
-                output,
+                output, FIXTURE / "config",
             )
-            before = {name: (output / name).read_bytes()
-                      for name in ("asvs.tsv", "assignments.tsv")}
-            subprocess.run([
-                sys.executable, str(ROOT / "scripts/qc_asvs.py"),
-                "--asvs", str(output / "asvs.tsv"),
-                "--config-dir", str(FIXTURE / "config"),
-                "--output-dir", str(output),
-            ], check=True)
-            with (output / "asv_qc.tsv").open(newline="") as handle:
-                reader = csv.DictReader(handle, delimiter="\t")
-                rows = list(reader)
-                self.assertEqual(reader.fieldnames, [
-                    "target", "asv_id", "length", "length_status",
-                    "stop_free_frames", "uncertain_frames", "coding_status",
-                ])
+            with (output / "asvs.tsv").open(newline="") as handle:
+                rows = list(csv.DictReader(handle, delimiter="\t"))
             self.assertEqual(
                 [(r["target"], r["length_status"], r["coding_status"]) for r in rows],
                 [("CytB", "pass", "multiple_stop_free_frames"),
                  ("ITS2", "not_checked", "not_checked"),
                  ("P3", "too_short", "not_checked"), ("P3", "pass", "not_checked")],
             )
-            self.assertEqual(
-                [(r["asv_id"], r["length"], r["length_status"]) for r in rows[2:]],
-                [("0a4b74ea4eddec52", "371", "too_short"),
-                 ("83ea72fd937a3d48", "373", "pass")],
-            )
             self.assertEqual(rows[0]["stop_free_frames"], "+0,+1")
             self.assertEqual(rows[0]["uncertain_frames"], "")
             self.assertTrue(all(not r["stop_free_frames"] and not r["uncertain_frames"]
                                 for r in rows[1:]))
             self.assertEqual(
-                {name: (output / name).read_bytes() for name in before}, before
+                sorted(p.name for p in output.iterdir()),
+                ["assignments.tsv", "asvs.tsv", "summarise_asvs.log"],
             )
 
 

@@ -641,12 +641,28 @@ Keep this separate from ASV and sample summaries, in a dedicated script.
 
 ### M10b - QC labelling cleanup
 
-[ ]
+[~]
 
-- Revisit sequence and assignment QC labelling before read-count aggregation.
-  Detailed scope, output columns and pass rules will be agreed separately;
-  do not implement the previously proposed label-column addition in isolation.
-- **Review gate:** agree the labelling contract, then review implementation.
+- QC is consolidated into `summarise_asvs.py`; standalone QC scripts are
+  retired. Required `--config-dir` supplies existing thresholds. The driver
+  invokes aggregation once; all QC is computed before writing canonical tables.
+- `asvs.tsv` holds sequence/taxonomy, length/coding evidence, `total_reads`
+  and `contam_target_cutoff` once per `(target, asv_id)`.
+  `assignments.tsv` holds its key/read count and separate lowercase
+  `true`/`false` flags `contam_possible` and `locov`.
+  No propagated evidence, combined labels or parallel QC TSVs.
+- Existing scientific checks and strict thresholds are unchanged.
+  Sequence passing uses length pass/not_checked and coding not_checked or
+  one/multiple stop-free frames. Assignment passing requires both flags false;
+  both-QC passing combines them by target-ASV. No stored combined pass flag.
+- Contamination diagnostics join `summarise_asvs.log`; historical outputs
+  remain untouched. M8 QC notes describe superseded standalone interfaces.
+- All 50 offline tests pass, including migrated QC boundary/override tests,
+  canonical schemas and driver regeneration. Pylance/signature and whitespace
+  checks pass. Aggregation-only validation on `results/m9e_keep` preserves
+  all sequence/taxonomy/count values (4 ASVs, 7 assignments) and verifies
+  unique-ASV totals, using temporary outputs without changing that run.
+- **Review gate:** review canonical outputs before closing M10b.
 
 ### M10c - Read counts aggregation
 
@@ -660,7 +676,7 @@ aggregation script and one feature test; no driver wiring or plotting.
   replacing frozen data; M9 runs are available as validation evidence.
 - Aggregate the raw-input count, `demux/demux_stats.txt`, shared preprocessing
   input/output counts, per-target `overall_summary.tsv`, Savont feature counts
-  and assignment QC.
+  and the canonical ASV/assignment QC columns.
 - Represent branches explicitly: run -> first barcode -> second barcode or
   unmatched -> manifest sample -> Porechop ABI -> Chopper -> target ->
   ampliseq preprocessing -> Savont -> QC-passing assignments. Preserve

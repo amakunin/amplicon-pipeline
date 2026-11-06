@@ -897,8 +897,10 @@ class CliTests(unittest.TestCase):
                     sys.executable, str(ROOT / "scripts/summarise_asvs.py"),
                     "--target", "CytB", str(target_dir / "results"),
                     "--output-dir", str(Path(argv[-1]) / "summary"),
+                    "--config-dir", str(FIXTURE / "config"),
                 ]
                 self.assertEqual(commands[4], expected_summary)
+                self.assertEqual(len(commands), 5)
                 self.assertEqual(run.call_args_list[4].kwargs, {"check": True})
                 summary = Path(argv[-1]) / "summary"
                 before = {
@@ -908,6 +910,10 @@ class CliTests(unittest.TestCase):
                     set(before), {"asvs.tsv", "assignments.tsv", "summarise_asvs.log"}
                 )
                 self.assertIn(b"0aece8f365778d45", before["asvs.tsv"])
+                self.assertIn(b"length_status", before["asvs.tsv"])
+                self.assertIn(b"contam_possible\tlocov", before["assignments.tsv"])
+                self.assertIn(b"150\tfalse\tfalse", before["assignments.tsv"])
+                self.assertIn(b"12\tfalse\ttrue", before["assignments.tsv"])
                 (summary / "assignments.tsv").unlink()
                 run.reset_mock()
                 with self.assertRaises(SystemExit) as raised:
@@ -1001,6 +1007,7 @@ class CliTests(unittest.TestCase):
                     str(output_dir / "ampliseq" / target / "results"),
                 ]
             summary_command += ["--output-dir", str(output_dir / "summary")]
+            summary_command += ["--config-dir", str(FIXTURE / "config")]
             self.assertTrue(commands.endswith(
                 f"ASV summary command: {shlex.join(summary_command)}\n"
             ))

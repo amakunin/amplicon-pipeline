@@ -11,7 +11,7 @@ and a sample manifest, it will:
 5. plot the results.
 
 > **Status: in development.** Demultiplexing, preprocessing, per-target ampliseq
-> and ASV aggregation run. The pipeline then exits with an explicit error because
+> ASV aggregation and sequence/assignment QC run. The pipeline then exits with an explicit error because
 > sample summaries and plots are not yet implemented. See
 > [MILESTONES.md](MILESTONES.md) for progress and the development plan.
 
@@ -166,7 +166,7 @@ processed/raw SINTAX table pair per target:
 python scripts/summarise_asvs.py \
     --target COI output_dir/ampliseq/COI/results \
     --target CytB output_dir/ampliseq/CytB/results \
-    --output-dir output_dir/summary
+    --output-dir output_dir/summary --config-dir config_dir
 ```
 
 Repeat `--target TARGET RESULTS_DIR` for each target. The driver runs this
@@ -177,29 +177,32 @@ command after all configured ampliseq targets finish and includes it in
   `length`, the union of reported taxonomy-rank columns, `confidence`,
   `sintax_raw_taxonomy`, `sintax_strand` and `sintax_filtered_taxonomy`.
   Taxonomy strings and confidence values are unchanged; absent ranks are blank.
+  Sequence QC adds `length_status`, `stop_free_frames`, `uncertain_frames`
+  and `coding_status`. `total_reads` and `contam_target_cutoff` are stored
+  once per target-ASV.
 - `assignments.tsv`: one row per non-zero sample-target-ASV assignment, with
-  `sample_id`, `target`, `asv_id` and integer `read_count`.
+  `sample_id`, `target`, `asv_id`, integer `read_count`, `contam_possible`
+  and `locov`. Both flags are explicit lowercase `true`/`false`.
 
 Successful aggregation reports resolved target directories, input/output paths
 and per-target unique ASVs, non-zero sample-ASV assignments and assigned reads
 to stdout and `summarise_asvs.log`. The log is replaced on each successful run;
-it is not an error log.
+it is not an error log. Contamination diagnostics include target-ASV totals,
+cutoffs and affected sample counts.
 
 Rows follow supplied target and source-table order; rank columns follow first
 appearance, including headers from empty targets. Empty targets contribute no
 rows; both output files always have headers. Missing tables, duplicate IDs and
 inconsistent IDs fail rather than silently dropping evidence. All inputs are
-parsed before replacing the two summary files. No QC, filtering, ratios or
-taxonomy normalization are applied; absent assignments are not sample outcomes.
+parsed and QC annotated before replacing the two canonical summary files.
+No rows are filtered and taxonomy is not normalized; absent assignments are
+not sample outcomes. Separate QC scripts/tables have been retired; historical
+QC outputs are not removed or updated.
 
 ### Sequence QC
 
-Sequence QC is currently standalone; the driver does not run it yet:
-
-```bash
-python scripts/qc_asvs.py --asvs output_dir/summary/asvs.tsv \
-    --config-dir config_dir --output-dir output_dir/summary
-```
+Sequence and assignment QC are part of aggregation, regenerating the two
+canonical tables on every run.
 
 `summary.common` and `summary.targets` merge by key, with target values winning.
 `allowed_lengths` specifies discrete ASV lengths; `min_length`/`max_length`
@@ -219,14 +222,29 @@ Shifts 0/1/2 are measured from each oriented sequence's start. Incomplete termin
 codons are ignored; ambiguous complete codons make a frame uncertain unless a
 definite stop excludes it.
 
-`asv_qc.tsv` contains `target`, `asv_id`, measured `length`, `length_status`,
-`stop_free_frames`, `uncertain_frames` and `coding_status`. Frame lists use
+Sequence evidence appears only in `asvs.tsv`. Frame lists use
 comma-separated strand/shift identifiers such as `+0,-2`. Coding status is
 `not_checked`, `no_stop_free_frame`, `one_stop_free_frame`,
 `multiple_stop_free_frames`, or `uncertain` if any candidate frame is uncertain.
 All confirmed stop-free frames remain listed even when other frames are uncertain.
-These are evidence annotations, not acceptance decisions; raw M7 tables remain
-unchanged and no ASVs are removed.
+No ASVs are removed.
+
+### Assignment QC
+
+`total_reads` sums all assignments for a target-ASV, including sequence-QC
+failures. `contam_target_cutoff` is `total_reads * max_contam_prop`.
+`contam_possible` is true only when the total strictly exceeds
+`min_contam_total_reads` and the assignment proportion is strictly below
+`max_contam_prop`. Defaults are 10000 and 0.01. `locov` is independently true
+when assignment reads are strictly below `max_locov` (default 100).
+Target settings override common settings. Old contamination setting names
+raise errors rather than being ignored.
+
+Derived sequence passing requires length `pass`/`not_checked` and coding
+`not_checked`/`one_stop_free_frame`/`multiple_stop_free_frames`. Assignment
+passing requires both flags false; both-QC passing joins these conditions
+on `(target, asv_id)`. No combined pass column or comma-separated QC labels
+are stored.
 
 ### Restart handling
 

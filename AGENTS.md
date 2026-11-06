@@ -50,8 +50,7 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `scripts/demux_hybrid.sh` | Dorado hybrid ONT and R Illumina demultiplexing |
 | `scripts/preprocess_reads.py` | Shared per-sample Porechop ABI and Chopper preprocessing |
 | `scripts/prepare_inputs.py` | Per-target ampliseq samplesheet, excluded-sample list and parameter file |
-| `scripts/summarise_asvs.py` | Savont counts, sequences and taxonomy into stable tables |
-| `scripts/qc_asvs.py` | Standalone target-ASV length and six-frame coding annotations |
+| `scripts/summarise_asvs.py` | Canonical Savont counts, sequences, taxonomy and QC tables |
 | `scripts/summarise_samples.py` | Manifest-driven sample annotations and QC outcomes |
 | `scripts/plot_summary.py` | Plots from summary tables |
 | `config/example/` | Template configuration for users to copy |
@@ -61,7 +60,8 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
 | `tests/helpers/` | Fixture-preparation helpers, not pipeline stages |
 
 Demux, preprocessing, input preparation and ASV aggregation are implemented
-(demux contract in `scripts/README.md`). Sequence QC is standalone, not yet driver-wired.
+(demux contract in `scripts/README.md`). Sequence and assignment QC run within
+ASV aggregation and regenerate its two canonical tables on every run.
 Sample summaries and plotting remain placeholders.
 
 ## Design decisions

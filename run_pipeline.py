@@ -479,7 +479,9 @@ def run_ampliseq(
         )
 
 
-def asv_summary_command(config: dict[str, Any], output_dir: Path) -> list[str]:
+def asv_summary_command(
+    config: dict[str, Any], output_dir: Path, config_dir: Path,
+) -> list[str]:
     output_dir = output_dir.resolve()
     command = [
         sys.executable,
@@ -489,7 +491,10 @@ def asv_summary_command(config: dict[str, Any], output_dir: Path) -> list[str]:
         command += [
             "--target", target, str(output_dir / "ampliseq" / target / "results"),
         ]
-    return command + ["--output-dir", str(output_dir / "summary")]
+    return command + [
+        "--output-dir", str(output_dir / "summary"),
+        "--config-dir", str(config_dir.resolve()),
+    ]
 
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
@@ -508,7 +513,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "ONT amplicon pipeline scaffold. Demultiplexing, preprocessing, ampliseq and ASV "
-            "aggregation run; later stages are not implemented."
+            "aggregation and QC run; later stages are not implemented."
         )
     )
     parser.add_argument("run_fastq_gz", type=Path, help="Raw run FASTQ (.fastq.gz)")
@@ -536,7 +541,7 @@ def main() -> None:
     command = demux_command(
         config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
     )
-    summary_command = asv_summary_command(config, args.output_dir)
+    summary_command = asv_summary_command(config, args.output_dir, args.config_dir)
     if args.dry_run:
         print_plan(config, samples)
         print(f"Demux command: {shlex.join(command)}")

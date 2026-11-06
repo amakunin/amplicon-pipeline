@@ -13,6 +13,7 @@ from scripts.summarise_asvs import summarise_asvs
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPTURED = ROOT / "tests/fixtures/small/ampliseq"
+CONFIG = ROOT / "tests/fixtures/small/config"
 
 
 class SummariseAsvsTests(unittest.TestCase):
@@ -22,7 +23,7 @@ class SummariseAsvsTests(unittest.TestCase):
             command = [sys.executable, str(ROOT / "scripts/summarise_asvs.py")]
             for target in ("COI", "CytB", "ITS2", "P3"):
                 command += ["--target", target, str(CAPTURED / target)]
-            command += ["--output-dir", str(output)]
+            command += ["--output-dir", str(output), "--config-dir", str(CONFIG)]
             result = subprocess.run(command, check=True, capture_output=True, text=True)
             self.assertEqual(result.stderr, "")
             self.assertEqual(result.stdout, (output / "summarise_asvs.log").read_text())
@@ -55,6 +56,8 @@ class SummariseAsvsTests(unittest.TestCase):
                     "Class", "Order", "Family", "Genus", "Species", "BOLD_bin",
                     "Domain", "Subgenus", "Group", "confidence",
                     "sintax_raw_taxonomy", "sintax_strand", "sintax_filtered_taxonomy",
+                    "length_status", "stop_free_frames", "uncertain_frames", "coding_status",
+                    "total_reads", "contam_target_cutoff",
                 ])
             self.assertEqual(
                 [(row["target"], row["asv_id"], int(row["length"])) for row in asvs],
@@ -88,7 +91,9 @@ class SummariseAsvsTests(unittest.TestCase):
             self.assertEqual(asvs[2]["Kingdom"], "")
             with (output / "assignments.tsv").open(newline="") as handle:
                 reader = csv.DictReader(handle, delimiter="\t")
-                self.assertEqual(reader.fieldnames, ["sample_id", "target", "asv_id", "read_count"])
+                self.assertEqual(reader.fieldnames, [
+                    "sample_id", "target", "asv_id", "read_count", "contam_possible", "locov",
+                ])
                 observed = [
                     (row["target"], row["asv_id"], row["sample_id"], int(row["read_count"]))
                     for row in reader
@@ -106,7 +111,7 @@ class SummariseAsvsTests(unittest.TestCase):
     def test_empty_target_writes_headers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "summary"
-            summarise_asvs({"COI": CAPTURED / "COI"}, output)
+            summarise_asvs({"COI": CAPTURED / "COI"}, output, CONFIG)
             for filename in ("asvs.tsv", "assignments.tsv"):
                 with (output / filename).open(newline="") as handle:
                     reader = csv.DictReader(handle, delimiter="\t")
@@ -121,7 +126,7 @@ class SummariseAsvsTests(unittest.TestCase):
             raw_path = target / "sintax/ASV_tax_sintax.user.raw.tsv"
             original = raw_path.read_text()
             output = directory / "summary"
-            summarise_asvs({"CytB": target}, output)
+            summarise_asvs({"CytB": target}, output, CONFIG)
             before = {path.name: path.read_bytes() for path in output.iterdir()}
             for content, message in (
                 (original.replace("0aece8f365778d45", "different"), "Inconsistent ASV IDs"),
@@ -130,7 +135,7 @@ class SummariseAsvsTests(unittest.TestCase):
                 with self.subTest(message=message):
                     raw_path.write_text(content)
                     with self.assertRaisesRegex(ValueError, message):
-                        summarise_asvs({"CytB": target}, output)
+                        summarise_asvs({"CytB": target}, output, CONFIG)
                     self.assertEqual(
                         {path.name: path.read_bytes() for path in output.iterdir()}, before
                     )

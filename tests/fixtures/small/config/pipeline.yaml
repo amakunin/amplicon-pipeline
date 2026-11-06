@@ -52,11 +52,12 @@ ampliseq:
       sintax_ref_tax_custom: "../../../../..//anospp-ops/data/plasmv2/sintax_db_P3.fasta"
       sintax_assign_taxlevels: "Domain,Phylum,Order,Family,Genus,Subgenus,Group,Species"
 
-# Sequence QC only; omitted checks are not performed.
+# QC settings; omitted sequence checks are not performed.
 summary:
   common:
-    min_contam_source_reads: 10000
-    min_contam_read_ratio: 100
+    min_contam_total_reads: 10000
+    max_contam_prop: 0.01
+    max_locov: 100
   targets:
     COI:
       allowed_lengths: [640, 643, 646, 649, 652, 655, 658, 661, 664, 667, 670, 673]

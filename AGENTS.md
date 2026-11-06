@@ -29,6 +29,10 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
   what was verified and how to rerun it, and open questions. Then stop at the
   review gate: do not start the next submilestone or top-level milestone, chain
   steps or run long unattended without developer approval.
+- When the developer closes a milestone or submilestone, mark it complete
+  and compress its notes to key decisions, implemented behavior and
+  verification evidence. Remove obsolete plans and review gates; carry
+  unresolved work into the appropriate pending milestone.
 - Keep changes small and reviewable. Do not refactor unrelated code.
 - Update the README, this file or the milestone checklist only where a change
   makes them wrong. Do not expand documentation speculatively.

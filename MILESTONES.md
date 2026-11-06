@@ -496,66 +496,21 @@ in M5-M6, with tests on small captured output.
 
 ### M8d - Assignment-level QC annotations
 
-[ ]
+[~]
 
-- **Decision gate - resolve before coding:**
-  - Contamination is evaluated per target-ASV across samples within the run;
-    sequence-QC-failing ASVs contribute to the comparison. In
-    `summary.common`, set `min_contam_source_reads: 10000` and
-    `min_contam_read_ratio: 100` for all targets; use these as CLI defaults too.
-  - If the maximum sample count is strictly above `min_contam_source_reads`,
-    label every sample tied at that maximum `contam_source`. Label other
-    samples strictly above that read threshold `possible_contam_source`.
-    Label assignments in other samples `contam_target` when their count is
-    strictly below `contam_source_reads / min_contam_read_ratio`.
-    Possible sources may also be targets. If no count exceeds the source
-    threshold, there is no source or target label.
-  - Still agree the separate assignment minimum-read threshold, the
-    secondary-to-primary read-count ratio and its boundary, disqualifying
-    labels, and primary tie handling.
-  - Approve the `summary.common`/`summary.targets` keys, assignment-QC columns,
-    output paths/log filename and standalone interface. The stdout and
-    persisted per-ASV report lists only ASVs with affected samples: target,
-    ASV ID, source reads, target cutoff and affected-sample count.
-    Do not infer other values from read filtering or
-    fixture counts.
-- **Implementation plan:** join `assignments.tsv` to `asv_qc.tsv` by
-  `(target, asv_id)`. Preserve every assignment, raw count, sequence annotation,
-  comparator value and applicable reason; never delete rows. Calculate
-  cross-sample contamination labels once, then apply sequence-QC,
-  contamination and minimum-read labels. Within each sample-target, select the
-  highest-count assignment without disqualifying labels as the fixed primary;
-  apply the separately approved ratio rule to secondary assignments against
-  it. Being secondary alone is not disqualifying; if none qualify, there is no
-  primary.
-- After the decision gate, propose a step within the milestone budget for the
-  standalone annotation and focused tests. Cover threshold boundaries, ties,
-  no-primary cases, sequence-QC failures in contamination comparisons and
-  order-independent results. Wire the driver only after reviewing the
-  annotations and tests.
-- **Review gate:** developer approves definitions, config/schema and
-  implementation scope before coding, then reviews annotations and tests.
-
-### M8e - Sample-target interpretation
-
-[ ]
-
-- Start from every expected manifest sample-target pair. Report eligible-ASV
-  counts, primary/secondary interpretation and explicit no-call outcomes.
-- Compare eligible secondaries with the primary using supported taxonomy;
-  distinguish disagreement from insufficient resolution and retain each
-  comparison when several lineages occur.
-- **Review gate:** approve outcome definitions, taxonomy rules and table schema,
-  then implementation and fixture results.
-
-### M8f - Cross-target interpretation
-
-[ ]
-
-- Agree reference-taxonomy harmonisation and cross-target comparison rules
-  after sample-target interpretation; do not infer conflicts from missing ranks.
-- **Review gate:** approve rules and implementation scope before coding, then
-  review integrated sample summaries before M9.
+- Standalone `scripts/qc_assignments.py` joins assignments to sequence QC by
+  `(target, asv_id)` and writes `assignment_qc.tsv`, retaining all rows, counts,
+  sequence evidence and QC labels. Driver wiring is deferred.
+- Compare each target-ASV across the run, including sequence-QC failures.
+  If total reads exceed `min_contam_total_reads` (default 10000), assignments
+  below `max_contam_prop` (default 0.01) of that total are `contam_possible`.
+  Assignments below `max_locov` (default 100) are `locov`; labels may overlap.
+  Settings can be overridden per target.
+- Stdout and `assignment_qc.log` list only ASVs with affected samples:
+  target, ASV ID, total reads, target cutoff and affected-sample count.
+- Old contamination configuration keys fail explicitly rather than being
+  silently ignored. Focused QC tests and fixture checksum checks pass.
+- **Review gate:** developer reviews the revised rules and output schema.
 
 ## M9 - Read-count accounting
 
@@ -615,14 +570,41 @@ then reviews the fixture read-flow report.
 
 **Review gate:** developer reviews the plots on real output.
 
-## M11 - Pipeline parameter investigation
+## M11 - Full-scale validation
+
+[ ]
+
+**Goal:** validate the complete pipeline on a real ONT run at production scale.
+
+**Tasks**
+- Developer runs the pipeline and reviews results, resource use and
+  operational behavior.
+- Feed observed failures and scaling issues back into focused code fixes.
+- Verify end-to-end sample/target accounting, reruns and result preservation.
+
+**Done when:** the full run completes, results are reviewed and blocking
+issues are resolved.
+
+**Review gate:** developer approves production-scale behavior for release.
+
+## M12 - First release
+
+[ ]
+
+**Tasks:** update the README from the real behaviour, document site setup,
+add `CITATION.cff`, tag `v0.1.0`.
+
+## M13 - Pipeline post-release optimisation
 
 [ ]
 
 **Goal:** investigate parameter sensitivity on small runs before full-scale
 validation; distinguish changes in read recovery from changes in ASV inference.
 
-**Tasks**
+### M12a - compare hybrid and illumina demux on test data
+
+[ ]
+
 - Compare hybrid and Illumina demultiplexing, Savont strand mode and minimum
   cluster size using controlled comparisons rather than changing them together.
   The Illumina fixture uses `--single-strand` for all targets and
@@ -643,38 +625,35 @@ validation; distinguish changes in read recovery from changes in ASV inference.
   These counts describe different stages; inspect supporting reads and inference
   logs before concluding that coverage or a particular parameter caused failure.
 - Agree comparison metrics and production parameter choices with the developer;
-  preserve run provenance and do not tune solely to recover desired ASV counts.
-- Investigate repeated Porechop/Chopper preprocessing across targets: measure
-  runtime/resource costs before deciding whether to extract one shared stage.
-  Verify identical preprocessing parameters, ampliseq support for skipping
-  both tools, FASTQ/downstream-count equivalence, provenance and restart
-  invalidation. Consider an explicit completion barrier before target branches
-  for LSF; avoid coupling targets by reusing the first target's work outputs.
-  Defer implementation and prioritisation until this investigation.
 
-**Review gate:** developer reviews parameter sensitivity and approves settings
-for full-scale validation.
-
-## M12 - Full-scale validation
+### M12b - read pre-processing as a script
 
 [ ]
 
-**Goal:** validate the complete pipeline on a real ONT run at production scale.
+- Avoid repeated Porechop/Chopper preprocessing across targets: create a script to run both tools on each sample fastq once, decide on dependencies management, implement resume logic as in the rest of pipeline, skip both tools in ampliseq portion of config. 
+- **Review gate:** developer reviews the updated pipeline end to end .
 
-**Tasks**
-- Developer runs the pipeline and reviews results, resource use and
-  operational behavior.
-- Feed observed failures and scaling issues back into focused code fixes.
-- Verify end-to-end sample/target accounting, reruns and result preservation.
-
-**Done when:** the full run completes, results are reviewed and blocking
-issues are resolved.
-
-**Review gate:** developer approves production-scale behavior for release.
-
-## M13 - First release
+### M8e - Sample-target interpretation
 
 [ ]
 
-**Tasks:** update the README from the real behaviour, document site setup,
-add `CITATION.cff`, tag `v0.1.0`.
+- Rules for primary sequence selection based on upstream labels, 
+  secondary-to-primary ratio and boundary,
+  disqualifying labels and primary tie handling before implementation.
+  Minimum-read/primary/secondary decisions and QC driver wiring remain pending.
+- Start from every expected manifest sample-target pair. Report eligible-ASV
+  counts, primary/secondary interpretation and explicit no-call outcomes.
+- Compare eligible secondaries with the primary using supported taxonomy;
+  distinguish disagreement from insufficient resolution and retain each
+  comparison when several lineages occur.
+- **Review gate:** approve outcome definitions, taxonomy rules and table schema,
+  then implementation and fixture results.
+
+### M8f - Sample level cross-target interpretation
+
+[ ]
+
+- Agree reference-taxonomy harmonisation and cross-target comparison rules
+  after sample-target interpretation; do not infer conflicts from missing ranks.
+- **Review gate:** approve rules and implementation scope before coding, then
+  review integrated sample summaries before M9.

@@ -131,6 +131,19 @@ Sample summaries and plotting remain placeholders.
 
 - Python 3.12, standard library plus PyYAML. Other dependencies need approval.
   Use type hints and `pathlib`.
+- Keep driver definitions ordered as paths, configuration/manifest, command
+  builders in pipeline order, fingerprint/completion helpers, stage execution
+  and CLI. Keep command construction separate from execution.
+- Use the frozen `PipelinePaths` and `TargetPaths` containers for shared paths
+  in commands, fingerprints, preparation and cleanup. Preserve existing CLI
+  path spelling where required; do not rediscover paths by parsing commands.
+- Route recorded stages through `run_recorded_stage`; wrappers declare their
+  refusal/resume policy and supply lazy fingerprint and cleanup callbacks.
+  Keep preparation outside this lifecycle and the fixed stage order explicit.
+- Keep fingerprint dependencies and effective configuration stage-specific.
+  Fingerprint the actual execution command; do not rebuild it independently.
+  Path construction must not read file contents or hash them. Read generated
+  parameters/samplesheets only inside the lazy fingerprint callback.
 - Scripts take explicit arguments, fail with a non-zero exit code and a clear
   message, and do not read hidden state or environment (tools on `PATH` excepted).
 - Shell scripts start with `set -euo pipefail`, quote variables and must pass

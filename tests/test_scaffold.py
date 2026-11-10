@@ -21,6 +21,8 @@ sys.path.insert(0, str(ROOT))
 
 import run_pipeline
 from run_pipeline import (
+    PipelinePaths,
+    TargetPaths,
     ampliseq_command,
     check_nextflow,
     demux_command,
@@ -143,6 +145,81 @@ class ConfigManifestTests(unittest.TestCase):
 
 
 class CommandRestartTests(unittest.TestCase):
+    def test_shared_paths_relocate_commands_and_fingerprint_dependencies(self) -> None:
+        config, _ = load_config(FIXTURE / "config")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch.object(Path, "open", side_effect=AssertionError("read file")):
+                paths = PipelinePaths(
+                    root / "raw.fastq.gz", root / "manifest.tsv",
+                    root / "settings", root / "analysis", root / "driver/scripts",
+                )
+                target = TargetPaths(paths.ampliseq / "CytB", paths.executor_config)
+                demux = demux_command(config, paths, True)
+                preprocess = run_pipeline.preprocess_command(paths, True)
+                prepare = run_pipeline.prepare_inputs_command(paths, "CytB")
+                ampliseq = ampliseq_command(target, "lsf", True)
+                summary = run_pipeline.asv_summary_command(config, paths)
+                counts = run_pipeline.read_count_command(paths)
+                self.assertEqual(demux[1], str(paths.demux_script("illumina")))
+                self.assertEqual(demux[demux.index("--input") + 1], str(paths.run_fastq))
+                self.assertEqual(preprocess[1], str(paths.preprocess_script))
+                self.assertEqual(prepare[1], str(paths.prepare_inputs_script))
+                self.assertEqual(summary[1], str(paths.asv_summary_script))
+                self.assertEqual(counts[1], str(paths.read_count_script))
+                self.assertEqual(ampliseq[ampliseq.index("-c") + 1], str(target.executor_config))
+                self.assertEqual(ampliseq[-1], str(target.parameters))
+                self.assertIn(str(target.results), summary)
+                self.assertEqual(paths.demux_record.parent, paths.demux.parent)
+                self.assertEqual(paths.preprocess_record.parent, paths.preprocessed.parent)
+                self.assertEqual(target.record.parent, target.directory)
+                self.assertEqual(target.work, target.directory / "work")
+                self.assertEqual(target.cache, target.directory / ".nextflow/cache")
+
+            paths.demux.mkdir(parents=True)
+            target.directory.mkdir(parents=True)
+            fastq = paths.preprocessed / "sample.fastq.gz"
+            reference = root / "reference.fasta"
+            target.samplesheet.write_text(f"sample\tfastq_1\ns1\t{fastq}\n")
+            target.parameters.write_text(run_pipeline.yaml.safe_dump({
+                "sintax_ref_tax_custom": str(reference),
+            }))
+            with (
+                mock.patch.object(
+                    run_pipeline, "file_fingerprints", return_value={},
+                ) as files,
+                mock.patch.object(
+                    run_pipeline, "output_fingerprints",
+                    return_value={"exists": True, "files": {}},
+                ) as outputs,
+            ):
+                run_pipeline.demux_fingerprints(config, paths, demux)
+                self.assertEqual(set(files.call_args.args[0]), {
+                    paths.run_fastq, paths.manifest, paths.demux_script("illumina"),
+                    *run_pipeline.barcode_mapping_paths(config).values(),
+                    *(
+                        config["demux"]["barcode_dir"] / f"Sanger_custom_barcode_{end}.{ext}"
+                        for end in ("F", "R") for ext in ("tmol", "fasta")
+                    ),
+                })
+                run_pipeline.preprocess_fingerprints(config, paths, preprocess)
+                self.assertEqual(set(files.call_args.args[0]), {
+                    paths.manifest, paths.preprocess_script, paths.driver,
+                    paths.prepare_inputs_script,
+                    *run_pipeline.barcode_mapping_paths(config).values(),
+                })
+                outputs.assert_called_once_with(paths.demux, exclude_work=True)
+                hashes = run_pipeline.target_fingerprints(paths, target, ampliseq, "lsf")
+                self.assertEqual(set(files.call_args.args[0]), {
+                    paths.run_fastq, paths.manifest, target.executor_config,
+                    target.samplesheet, target.exclusions, target.resources, fastq, reference,
+                })
+                self.assertEqual(
+                    hashes["runtime:ampliseq-command"], run_pipeline.json_fingerprint(ampliseq),
+                )
+            self.assertFalse(paths.run_fastq.exists())
+            self.assertFalse(paths.preprocessed.exists())
+
     def test_recorded_stage_records_and_cleans_only_after_success(self) -> None:
         for keep in (False, True):
             with self.subTest(keep=keep), tempfile.TemporaryDirectory() as temporary:
@@ -244,13 +321,14 @@ class CommandRestartTests(unittest.TestCase):
             (target_dir / "samplesheet.tsv").write_text("sample\tfastq_1\n")
             parameters = {"outdir": str(target_dir / "results"), "input": "samplesheet.tsv"}
             (target_dir / "params.yaml").write_text(run_pipeline.yaml.safe_dump(parameters))
-            args = SimpleNamespace(
-                run_fastq_gz=output / "run.fastq.gz",
-                manifest_tsv=FIXTURE / "manifest.tsv", config_dir=FIXTURE / "config",
-                output_dir=output, keep_intermediates=True, profile="local",
+            paths = PipelinePaths(
+                output / "run.fastq.gz", FIXTURE / "manifest.tsv",
+                FIXTURE / "config", output,
             )
-            demux = demux_command(config, args.run_fastq_gz, output, True)
-            preprocess = run_pipeline.preprocess_command(args)
+            target_paths = TargetPaths(target_dir, paths.executor_config)
+            demux = demux_command(config, paths, True)
+            preprocess = run_pipeline.preprocess_command(paths, True)
+            ampliseq = ampliseq_command(target_paths, "local", True)
             published = {"exists": True, "files": {"reads.fastq.gz": "digest"}}
             with (
                 mock.patch.object(
@@ -261,7 +339,7 @@ class CommandRestartTests(unittest.TestCase):
             ):
                 for actual, expected in (
                     (
-                        run_pipeline.demux_fingerprints(config, args, demux),
+                        run_pipeline.demux_fingerprints(config, paths, demux),
                         {
                             "runtime:demux-config": {
                                 "method": config["demux"]["method"],
@@ -271,7 +349,7 @@ class CommandRestartTests(unittest.TestCase):
                         },
                     ),
                     (
-                        run_pipeline.preprocess_fingerprints(config, args, preprocess),
+                        run_pipeline.preprocess_fingerprints(config, paths, preprocess),
                         {
                             "runtime:preprocess-config": {
                                 "method": config["demux"]["method"],
@@ -283,12 +361,12 @@ class CommandRestartTests(unittest.TestCase):
                         },
                     ),
                     (
-                        run_pipeline.target_fingerprints(args, config, "COI", target_dir),
+                        run_pipeline.target_fingerprints(
+                            paths, target_paths, ampliseq, "local",
+                        ),
                         {
                             "runtime:ampliseq-params": parameters,
-                            "runtime:ampliseq-command": ampliseq_command(
-                                args.config_dir, target_dir, args.profile, True,
-                            ),
+                            "runtime:ampliseq-command": ampliseq,
                         },
                     ),
                 ):
@@ -411,38 +489,41 @@ class CommandRestartTests(unittest.TestCase):
                 config_dir=FIXTURE / "config", manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=directory, profile="local",
             )
+            paths = PipelinePaths(
+                directory / "run.fastq.gz", args.manifest_tsv, args.config_dir, directory,
+            )
             demux_dir = directory / "demux"
             demux_dir.mkdir()
             reads = demux_dir / "reads.fastq.gz"
             reads.write_bytes(b"reads")
-            command = run_pipeline.preprocess_command(args)
-            baseline = run_pipeline.preprocess_fingerprints(config, args, command)
+            command = run_pipeline.preprocess_command(paths, args.keep_intermediates)
+            baseline = run_pipeline.preprocess_fingerprints(config, paths, command)
             scratch = demux_dir / "work"
             scratch.mkdir()
             (scratch / "intermediate.fastq").write_bytes(b"scratch")
             self.assertEqual(
-                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+                run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
             )
             shutil.rmtree(scratch)
             args.keep_intermediates = False
             self.assertEqual(
-                run_pipeline.preprocess_command(args), command[:-1],
+                run_pipeline.preprocess_command(paths, args.keep_intermediates), command[:-1],
             )
             args.keep_intermediates = True
             config["summary"]["common"]["max_locov"] += 1
             config["ampliseq"]["targets"]["CytB"]["sintax_cutoff"] = 0.9
             args.profile = "lsf"
             self.assertEqual(
-                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+                run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
             )
             config["preprocess"] = {"chopper_options": "--quality 10"}
             self.assertNotEqual(
-                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+                run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
             )
             config["preprocess"] = {}
             config["threads"] += 1
             self.assertNotEqual(
-                run_pipeline.preprocess_fingerprints(config, args, command), baseline,
+                run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
             )
             config["threads"] -= 1
             output = directory / "preprocessed"
@@ -455,45 +536,48 @@ class CommandRestartTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fake_run) as run:
-                run_pipeline.run_preprocess(config, args)
+                run_pipeline.run_preprocess(config, args, paths)
                 scratch = output / "work"
                 scratch.mkdir()
                 (scratch / "intermediate.fastq").write_bytes(b"scratch")
-                run_pipeline.run_preprocess(config, args)
+                run_pipeline.run_preprocess(config, args, paths)
                 shutil.rmtree(scratch)
-                run_pipeline.run_preprocess(config, args)
+                run_pipeline.run_preprocess(config, args, paths)
                 run.assert_called_once_with(command, check=True)
                 args.check_integrity = False
                 with mock.patch.object(
                     run_pipeline, "sha256_file",
                     side_effect=AssertionError("fast restart hashed a file"),
                 ):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 args.check_integrity = True
                 before = run_pipeline.output_fingerprints(output)
                 record_bytes = record.read_bytes()
                 reads.write_bytes(b"changed")
                 with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 self.assertEqual(run_pipeline.output_fingerprints(output), before)
                 self.assertEqual(record.read_bytes(), record_bytes)
                 reads.write_bytes(b"reads")
                 config["preprocess"] = {"chopper_options": "--quality 10"}
                 with self.assertRaises(SystemExit):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 config["preprocess"] = {}
                 (output / "reads.fastq.gz").unlink()
                 with self.assertRaises(SystemExit):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 (output / "reads.fastq.gz").write_bytes(b"modified")
                 with self.assertRaises(SystemExit):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 record.unlink()
                 with self.assertRaises(SystemExit):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 run.assert_called_once()
 
             args.output_dir = directory / "failed"
+            paths = PipelinePaths(
+                paths.run_fastq, paths.manifest, paths.config_dir, args.output_dir,
+            )
             (args.output_dir / "demux").mkdir(parents=True)
             failure = subprocess.CalledProcessError(7, command)
 
@@ -503,11 +587,11 @@ class CommandRestartTests(unittest.TestCase):
 
             with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fail_run):
                 with self.assertRaises(subprocess.CalledProcessError) as raised:
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
                 self.assertIs(raised.exception, failure)
                 self.assertFalse((args.output_dir / ".preprocess-completion.json").exists())
                 with self.assertRaises(SystemExit):
-                    run_pipeline.run_preprocess(config, args)
+                    run_pipeline.run_preprocess(config, args, paths)
 
     def test_stage_configuration_fingerprints_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -536,6 +620,9 @@ class CommandRestartTests(unittest.TestCase):
                 profile="local",
             )
             args.run_fastq_gz.write_bytes(b"raw run")
+            paths = PipelinePaths(
+                args.run_fastq_gz, args.manifest_tsv, args.config_dir, args.output_dir,
+            )
             demux_dir = args.output_dir / "demux"
             demux_dir.mkdir(parents=True)
             preprocessed_dir = args.output_dir / "preprocessed"
@@ -561,12 +648,14 @@ class CommandRestartTests(unittest.TestCase):
                         "--output-dir", str(args.output_dir / "ampliseq"),
                     ], check=True)
                     target_dir = args.output_dir / "ampliseq" / target
-                    write_resource_config(target_dir, config["threads"])
+                    target_paths = TargetPaths(target_dir, paths.executor_config)
+                    write_resource_config(target_paths, config["threads"])
                     targets[target] = run_pipeline.target_fingerprints(
-                        args, config, target, target_dir
+                        paths, target_paths,
+                        ampliseq_command(target_paths, args.profile), args.profile,
                     )
                 demux = run_pipeline.demux_fingerprints(
-                    config, args, demux_command(config, args.run_fastq_gz, args.output_dir)
+                    config, paths, demux_command(config, paths),
                 )
                 return demux, targets
 
@@ -610,7 +699,10 @@ class CommandRestartTests(unittest.TestCase):
 
     def test_demux_command(self) -> None:
         config, _ = load_config(FIXTURE / "config")
-        command = demux_command(config, Path("run.fastq.gz"), Path("out"))
+        paths = PipelinePaths(
+            Path("run.fastq.gz"), FIXTURE / "manifest.tsv", FIXTURE / "config", Path("out"),
+        )
+        command = demux_command(config, paths)
         self.assertEqual(command[:2], ["bash", str(ROOT / "scripts/demux_illumina.sh")])
         self.assertEqual(
             command[2:],
@@ -625,24 +717,25 @@ class CommandRestartTests(unittest.TestCase):
 
         config["demux"]["method"] = "hybrid"
         config["demux"]["dorado_exec"] = None
-        command = demux_command(config, Path("run.fastq.gz"), Path("out"))
+        command = demux_command(config, paths)
         self.assertTrue(command[1].endswith("scripts/demux_hybrid.sh"))
         self.assertNotIn("--dorado", command)
         self.assertEqual(
-            demux_command(config, Path("run.fastq.gz"), Path("out"), True),
+            demux_command(config, paths, True),
             command + ["--keep-intermediates"],
         )
 
     def test_ampliseq_command_and_resource_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             target_dir = Path(temporary)
-            write_resource_config(target_dir, 4)
+            paths = TargetPaths(target_dir, FIXTURE / "config/ampliseq.config")
+            write_resource_config(paths, 4)
             self.assertEqual(
                 (target_dir / "resources.config").read_text(),
                 "executor.cpus = 4\nprocess.resourceLimits = [cpus: 4]\n",
             )
             self.assertEqual(
-                ampliseq_command(FIXTURE / "config", target_dir, "local"),
+                ampliseq_command(paths, "local"),
                 [
                     "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
                     "-profile", "local",
@@ -653,16 +746,15 @@ class CommandRestartTests(unittest.TestCase):
                 ],
             )
             self.assertIn(
-                "-resume", ampliseq_command(FIXTURE / "config", target_dir, "local", True),
+                "-resume", ampliseq_command(paths, "local", True),
             )
 
     def test_prepare_inputs_command_preserves_arguments(self) -> None:
-        args = SimpleNamespace(
-            manifest_tsv=Path("manifest.tsv"), config_dir=Path("config"),
-            output_dir=Path("out"),
+        paths = PipelinePaths(
+            Path("run.fastq.gz"), Path("manifest.tsv"), Path("config"), Path("out"),
         )
         self.assertEqual(
-            run_pipeline.prepare_inputs_command(args, "CytB"),
+            run_pipeline.prepare_inputs_command(paths, "CytB"),
             [
                 sys.executable, str(ROOT / "scripts/prepare_inputs.py"),
                 "--manifest", "manifest.tsv", "--config-dir", "config",
@@ -686,6 +778,9 @@ class CommandRestartTests(unittest.TestCase):
                 output_dir=output_dir,
                 profile="local",
                 run_fastq_gz=run_fastq,
+            )
+            paths = PipelinePaths(
+                run_fastq, args.manifest_tsv, args.config_dir, output_dir,
             )
             launches = []
             fail_target = "CytB"
@@ -723,7 +818,7 @@ class CommandRestartTests(unittest.TestCase):
                 run_pipeline.subprocess, "run", side_effect=fake_run
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    run_ampliseq(config, args)
+                    run_ampliseq(config, args, paths)
                 self.assertEqual(launches, ["COI", "CytB"])
                 self.assertTrue(
                     (output_dir / "ampliseq/COI/.completion.json").exists()
@@ -735,7 +830,7 @@ class CommandRestartTests(unittest.TestCase):
 
                 fail_target = None
                 launches.clear()
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(launches, ["CytB", "ITS2", "P3"])
                 for target in config["ampliseq"]["targets"]:
                     target_dir = output_dir / "ampliseq" / target
@@ -769,6 +864,9 @@ class CommandRestartTests(unittest.TestCase):
                 output_dir=output_dir,
                 profile="local",
                 run_fastq_gz=run_fastq,
+            )
+            paths = PipelinePaths(
+                run_fastq, args.manifest_tsv, args.config_dir, output_dir,
             )
             nextflow_commands = []
             fail_nextflow = [True]
@@ -818,52 +916,52 @@ class CommandRestartTests(unittest.TestCase):
                 run_pipeline.subprocess, "run", side_effect=fake_run
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    run_ampliseq(config, args)
+                    run_ampliseq(config, args, paths)
                 self.assertFalse(record_path.exists())
                 self.assertTrue((target_dir / "work/task.txt").exists())
                 self.assertTrue((target_dir / ".nextflow/cache/record").exists())
 
                 fail_nextflow[0] = False
                 args.keep_intermediates = True
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertTrue(record_path.exists())
                 self.assertTrue((target_dir / "work/task.txt").exists())
                 self.assertTrue((target_dir / ".nextflow/cache/record").exists())
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 2)
                 args.check_integrity = False
                 with mock.patch.object(
                     run_pipeline, "sha256_file",
                     side_effect=AssertionError("fast restart hashed a file"),
                 ):
-                    run_ampliseq(config, args)
+                    run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 2)
                 args.check_integrity = True
 
                 (target_dir / "results/overall_summary.tsv").unlink()
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 3)
 
                 args.profile = "lsf"
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 4)
 
                 config["threads"] += 1
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 5)
 
                 with gzip.open(
                     demux_dir / "barcode02_barcode89.fastq.gz", "wb"
                 ) as handle:
                     handle.write(b"@r2\nTGCA\n+\nIIII\n")
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 6)
 
                 reference.write_text(">ref\nTGCA\n")
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 7)
                 args.keep_intermediates = False
-                run_ampliseq(config, args)
+                run_ampliseq(config, args, paths)
                 self.assertEqual(len(nextflow_commands), 8)
                 self.assertFalse((target_dir / "work").exists())
                 self.assertFalse((target_dir / ".nextflow/cache").exists())
@@ -877,6 +975,7 @@ class CommandRestartTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             target = root / "target"
+            paths = TargetPaths(target, FIXTURE / "config/ampliseq.config")
             work = target / "work"
             cache = target / ".nextflow/cache"
             work.mkdir(parents=True)
@@ -887,7 +986,7 @@ class CommandRestartTests(unittest.TestCase):
             output = results / "asvs.tsv"
             output.symlink_to(work / "asvs.tsv")
             with self.assertRaisesRegex(ValueError, "Published output depends"):
-                run_pipeline.cleanup_ampliseq_work(target)
+                run_pipeline.cleanup_ampliseq_work(paths)
             self.assertEqual(output.read_text(), "published")
             self.assertTrue(cache.exists())
             output.unlink()
@@ -898,11 +997,11 @@ class CommandRestartTests(unittest.TestCase):
             (external / "keep.txt").write_text("external cache")
             cache.symlink_to(external, target_is_directory=True)
             with self.assertRaisesRegex(ValueError, "Refusing cleanup"):
-                run_pipeline.cleanup_ampliseq_work(target)
+                run_pipeline.cleanup_ampliseq_work(paths)
             self.assertTrue(work.exists())
             self.assertEqual((external / "keep.txt").read_text(), "external cache")
             cache.unlink()
-            run_pipeline.cleanup_ampliseq_work(target)
+            run_pipeline.cleanup_ampliseq_work(paths)
             self.assertFalse(work.exists())
             self.assertEqual(output.read_text(), "published copy")
 
@@ -921,6 +1020,9 @@ class CommandRestartTests(unittest.TestCase):
                 output_dir=output_dir,
                 run_fastq_gz=run_fastq,
             )
+            paths = PipelinePaths(
+                run_fastq, args.manifest_tsv, args.config_dir, output_dir,
+            )
             calls = []
 
             def fake_run(command, **kwargs):
@@ -934,34 +1036,34 @@ class CommandRestartTests(unittest.TestCase):
             with mock.patch.object(
                 run_pipeline.subprocess, "run", side_effect=fake_run
             ):
-                run_demux(config, args)
+                run_demux(config, args, paths)
                 record_path = output_dir / ".demux-completion.json"
                 self.assertTrue(record_path.exists())
                 scratch = output_dir / "demux/work"
                 scratch.mkdir()
                 (scratch / "intermediate.fastq").write_bytes(b"scratch")
-                run_demux(config, args)
+                run_demux(config, args, paths)
                 shutil.rmtree(scratch)
-                run_demux(config, args)
+                run_demux(config, args, paths)
                 self.assertEqual(len(calls), 1)
 
                 (output_dir / "demux/reads.fastq.gz").unlink()
                 with self.assertRaisesRegex(SystemExit, "output files are missing"):
-                    run_demux(config, args)
+                    run_demux(config, args, paths)
                 self.assertEqual(len(calls), 1)
                 self.assertTrue((output_dir / "demux/demux_stats.txt").exists())
 
                 (output_dir / "demux/reads.fastq.gz").write_bytes(b"reads")
                 run_fastq.write_bytes(b"changed raw run")
                 with self.assertRaisesRegex(SystemExit, "inputs or configuration"):
-                    run_demux(config, args)
+                    run_demux(config, args, paths)
                 self.assertEqual(len(calls), 1)
 
                 record_path.unlink()
                 with self.assertRaisesRegex(
                     SystemExit, "without a completion record"
                 ):
-                    run_demux(config, args)
+                    run_demux(config, args, paths)
                 self.assertEqual(len(calls), 1)
 
     def test_fast_demux_restart_uses_output_presence_without_hashing(self) -> None:
@@ -979,6 +1081,9 @@ class CommandRestartTests(unittest.TestCase):
                 output_dir=output_dir,
                 run_fastq_gz=run_fastq,
             )
+            paths = PipelinePaths(
+                run_fastq, args.manifest_tsv, args.config_dir, output_dir,
+            )
 
             def fake_run(command, **kwargs):
                 demux_dir = Path(command[command.index("--output-dir") + 1])
@@ -990,19 +1095,19 @@ class CommandRestartTests(unittest.TestCase):
             with mock.patch.object(
                 run_pipeline.subprocess, "run", side_effect=fake_run,
             ) as run:
-                run_demux(config, args)
+                run_demux(config, args, paths)
                 run_fastq.write_bytes(b"changed input")
                 (output_dir / "demux/reads.fastq.gz").write_bytes(b"changed output")
                 with mock.patch.object(
                     run_pipeline, "sha256_file",
                     side_effect=AssertionError("fast restart hashed a file"),
                 ):
-                    run_demux(config, args)
+                    run_demux(config, args, paths)
                     self.assertEqual(run.call_count, 1)
 
                     (output_dir / "demux/unexpected.txt").write_text("extra")
                     with self.assertRaisesRegex(SystemExit, "output files are missing or unexpected"):
-                        run_demux(config, args)
+                        run_demux(config, args, paths)
 
     def test_demux_failure_does_not_write_completion_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1019,6 +1124,9 @@ class CommandRestartTests(unittest.TestCase):
                 output_dir=output_dir,
                 run_fastq_gz=run_fastq,
             )
+            paths = PipelinePaths(
+                run_fastq, args.manifest_tsv, args.config_dir, output_dir,
+            )
 
             def fail_after_partial_output(command, **kwargs):
                 demux_dir = Path(command[command.index("--output-dir") + 1])
@@ -1031,11 +1139,11 @@ class CommandRestartTests(unittest.TestCase):
                 side_effect=fail_after_partial_output,
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    run_demux(config, args)
+                    run_demux(config, args, paths)
 
             self.assertFalse((output_dir / ".demux-completion.json").exists())
             with self.assertRaisesRegex(SystemExit, "without a completion record"):
-                run_demux(config, args)
+                run_demux(config, args, paths)
 
     def test_check_nextflow_requires_version_26(self) -> None:
         def completed(version: str) -> subprocess.CompletedProcess:
@@ -1232,9 +1340,9 @@ class CliTests(unittest.TestCase):
                     "--config-dir", str(FIXTURE / "config"),
                 ]
                 self.assertEqual(commands[4], expected_summary)
-                expected_counts = run_pipeline.read_count_command(SimpleNamespace(
-                    run_fastq_gz=Path(argv[2]), manifest_tsv=FIXTURE / "manifest.tsv",
-                    config_dir=FIXTURE / "config", output_dir=Path(argv[-1]),
+                expected_counts = run_pipeline.read_count_command(PipelinePaths(
+                    Path(argv[2]), FIXTURE / "manifest.tsv",
+                    FIXTURE / "config", Path(argv[-1]),
                 ))
                 self.assertEqual(commands[5], expected_counts)
                 self.assertEqual(len(commands), 6)
@@ -1351,10 +1459,9 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             plan, commands = result.stdout.split("Demux command: ", 1)
             self.assertIn("demux_illumina.sh", commands)
-            preprocess = run_pipeline.preprocess_command(SimpleNamespace(
-                keep_intermediates=False,
-                manifest_tsv=FIXTURE / "manifest.tsv",
-                config_dir=FIXTURE / "config", output_dir=output_dir,
+            preprocess = run_pipeline.preprocess_command(PipelinePaths(
+                directory / "run.fastq.gz", FIXTURE / "manifest.tsv",
+                FIXTURE / "config", output_dir,
             ))
             self.assertIn(f"Preprocess command: {shlex.join(preprocess)}", commands)
             self.assertIn("Ampliseq command (CytB): nextflow run", commands)
@@ -1371,10 +1478,9 @@ class CliTests(unittest.TestCase):
             self.assertIn(
                 f"ASV summary command: {shlex.join(summary_command)}\n", commands,
             )
-            expected_counts = run_pipeline.read_count_command(SimpleNamespace(
-                run_fastq_gz=Path(directory / "run.fastq.gz"),
-                manifest_tsv=FIXTURE / "manifest.tsv",
-                config_dir=FIXTURE / "config", output_dir=output_dir,
+            expected_counts = run_pipeline.read_count_command(PipelinePaths(
+                directory / "run.fastq.gz", FIXTURE / "manifest.tsv",
+                FIXTURE / "config", output_dir,
             ))
             self.assertTrue(commands.endswith(
                 f"Read count command: {shlex.join(expected_counts)}\n"

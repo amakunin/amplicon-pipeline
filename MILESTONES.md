@@ -757,7 +757,7 @@ issues are resolved.
   records, changed contents, exact inventory and work exclusion. Pylance and
   whitespace checks pass. Rerun with `python -m unittest discover -s tests -v`.
 
-### M11c - Shared stage lifecycle [~]
+### M11c - Shared stage lifecycle [x]
 
 - `run_recorded_stage` owns lazy fingerprinting, completion checks, execution,
   fresh-mode cleanup and success-only records. Stage wrappers supply commands,
@@ -767,8 +767,22 @@ issues are resolved.
   and records, fresh mode and hash-free fast skips. Pylance reports no errors;
   whitespace checks pass. Rerun with
   `python -m unittest discover -s tests -v`.
-- **Review gate:** review the lifecycle extraction before M11d, which will
-  propose shared stage input/path data for commands and fingerprinting.
+
+### M11d - Shared pipeline and target paths [x]
+
+- Combined pipeline and target changes under the approved extended review
+  budget. Frozen `PipelinePaths` and `TargetPaths` supply named paths to command
+  builders, fingerprints, preparation, resources, cleanup and execution/dry-run.
+  Input CLI spelling is retained where commands previously used it.
+- Target fingerprints use the actual execution command, without rebuilding it
+  or accepting unused configuration/target arguments. Stage-specific dependency
+  selection and effective configuration remain explicit; generated samplesheet
+  and parameter contents are read only when fingerprinting is needed.
+- All 63 offline tests pass, including relocated paths/dependencies, exact
+  commands, fingerprint serialization, hash-free skips, dry-runs and cleanup.
+  Pylance reports no errors and checked signatures are compatible. Whitespace
+  checks pass. Rerun with `python -m unittest discover -s tests -v`.
+- **Review gate:** review combined path refactor before further M11 changes.
 
 ## M12 - Summary plots
 

@@ -736,6 +736,40 @@ issues are resolved.
 
 **Review gate:** developer approves production-scale behavior for release.
 
+### M11a - Driver organization and fingerprint helpers [x]
+
+- Grouped configuration, command builders in pipeline order, fingerprint
+  helpers, stage execution and CLI in `run_pipeline.py`. Extracted
+  `prepare_inputs_command` and shared canonical JSON hashing; stage-specific
+  input selection, fingerprint serialization and restart policy are unchanged.
+- All 60 offline tests pass, including exact preparation-command arguments and
+  legacy runtime-fingerprint compatibility. Pylance and whitespace checks pass.
+  Rerun with `python -m unittest discover -s tests -v`.
+- Preprocessing fingerprints the driver source: this edit invalidates its old
+  record under strict checking; fast reuse is unaffected.
+
+### M11b - Shared completion checks [x]
+
+- `stage_completion_matches` reads completion records and selects fast inventory
+  checks or full fingerprint comparisons. Stage functions retain lazy input
+  hashing, refusal of incomplete demux/preprocessing output and ampliseq resume.
+- All 61 offline tests pass, including shared-check mode selection, missing
+  records, changed contents, exact inventory and work exclusion. Pylance and
+  whitespace checks pass. Rerun with `python -m unittest discover -s tests -v`.
+
+### M11c - Shared stage lifecycle [~]
+
+- `run_recorded_stage` owns lazy fingerprinting, completion checks, execution,
+  fresh-mode cleanup and success-only records. Stage wrappers supply commands,
+  paths and fingerprint callbacks; demux/preprocessing refuse incomplete
+  outputs while ampliseq resumes. Preparation stays outside the helper.
+- All 62 offline tests pass, including failure propagation, success-only cleanup
+  and records, fresh mode and hash-free fast skips. Pylance reports no errors;
+  whitespace checks pass. Rerun with
+  `python -m unittest discover -s tests -v`.
+- **Review gate:** review the lifecycle extraction before M11d, which will
+  propose shared stage input/path data for commands and fingerprinting.
+
 ## M12 - Summary plots
 
 [ ]

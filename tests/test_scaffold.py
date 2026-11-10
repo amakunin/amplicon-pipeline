@@ -1,6 +1,8 @@
 """Driver configuration, command/restart and CLI tests without external tools."""
 
 import gzip
+import hashlib
+import json
 import os
 from pathlib import Path
 import shlex
@@ -141,6 +143,165 @@ class ConfigManifestTests(unittest.TestCase):
 
 
 class CommandRestartTests(unittest.TestCase):
+    def test_recorded_stage_records_and_cleans_only_after_success(self) -> None:
+        for keep in (False, True):
+            with self.subTest(keep=keep), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                output = root / "results"
+                record = root / ".completion.json"
+                command = ["tool", "--output", str(output)]
+                fingerprints = mock.Mock(return_value={"source": "digest"})
+                cleanup = mock.Mock()
+                failure = subprocess.CalledProcessError(7, command)
+
+                def execute(command, **kwargs):
+                    output.mkdir(exist_ok=True)
+                    (output / "published.tsv").write_text("result")
+                    return subprocess.CompletedProcess(command, 0)
+
+                with mock.patch.object(
+                    run_pipeline.subprocess, "run", side_effect=failure,
+                ) as run:
+                    with self.assertRaises(subprocess.CalledProcessError) as raised:
+                        run_pipeline.run_recorded_stage(
+                            "test", command, output, record, fingerprints,
+                            keep_intermediates=keep, check_integrity=False,
+                            refuse_existing=False, cwd=root, cleanup=cleanup,
+                        )
+                    self.assertIs(raised.exception, failure)
+                    cleanup.assert_not_called()
+                    self.assertFalse(record.exists())
+                    run.side_effect = execute
+                    run_pipeline.run_recorded_stage(
+                        "test", command, output, record, fingerprints,
+                        keep_intermediates=keep, check_integrity=False,
+                        refuse_existing=False, cwd=root, cleanup=cleanup,
+                    )
+                    run.assert_called_with(command, cwd=root, check=True)
+                self.assertEqual(record.exists(), keep)
+                self.assertEqual(cleanup.call_count, int(not keep))
+                self.assertEqual(fingerprints.call_count, 2 if keep else 0)
+                self.assertEqual((output / "published.tsv").read_text(), "result")
+
+    def test_stage_completion_matches_selects_fast_or_strict_checks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            output = directory / "results"
+            output.mkdir()
+            reads = output / "reads.fastq.gz"
+            reads.write_bytes(b"reads")
+            record_path = directory / ".completion.json"
+            fingerprints = {"source": "digest"}
+            self.assertFalse(run_pipeline.stage_completion_matches(
+                record_path, output, None,
+            ))
+            with mock.patch.object(
+                run_pipeline, "sha256_file", side_effect=AssertionError("hashed"),
+            ):
+                self.assertFalse(run_pipeline.stage_completion_matches(
+                    record_path, output, fingerprints,
+                ))
+            run_pipeline.write_completion_record(
+                record_path, run_pipeline.completion_record(fingerprints, output),
+            )
+            self.assertTrue(run_pipeline.stage_completion_matches(
+                record_path, output, fingerprints,
+            ))
+            self.assertFalse(run_pipeline.stage_completion_matches(
+                record_path, output, {"source": "changed"},
+            ))
+            reads.write_bytes(b"modified")
+            self.assertFalse(run_pipeline.stage_completion_matches(
+                record_path, output, fingerprints,
+            ))
+            with mock.patch.object(
+                run_pipeline, "sha256_file", side_effect=AssertionError("hashed"),
+            ):
+                self.assertTrue(run_pipeline.stage_completion_matches(
+                    record_path, output, None,
+                ))
+                scratch = output / "work"
+                scratch.mkdir()
+                (scratch / "intermediate").write_text("scratch")
+                self.assertTrue(run_pipeline.stage_completion_matches(
+                    record_path, output, None, exclude_work=True,
+                ))
+                self.assertFalse(run_pipeline.stage_completion_matches(
+                    record_path, output, None,
+                ))
+                reads.unlink()
+                self.assertFalse(run_pipeline.stage_completion_matches(
+                    record_path, output, None, exclude_work=True,
+                ))
+
+    def test_runtime_fingerprints_preserve_serialization(self) -> None:
+        config, _ = load_config(FIXTURE / "config")
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            (output / "demux").mkdir()
+            target_dir = output / "ampliseq/COI"
+            target_dir.mkdir(parents=True)
+            (target_dir / "samplesheet.tsv").write_text("sample\tfastq_1\n")
+            parameters = {"outdir": str(target_dir / "results"), "input": "samplesheet.tsv"}
+            (target_dir / "params.yaml").write_text(run_pipeline.yaml.safe_dump(parameters))
+            args = SimpleNamespace(
+                run_fastq_gz=output / "run.fastq.gz",
+                manifest_tsv=FIXTURE / "manifest.tsv", config_dir=FIXTURE / "config",
+                output_dir=output, keep_intermediates=True, profile="local",
+            )
+            demux = demux_command(config, args.run_fastq_gz, output, True)
+            preprocess = run_pipeline.preprocess_command(args)
+            published = {"exists": True, "files": {"reads.fastq.gz": "digest"}}
+            with (
+                mock.patch.object(
+                    run_pipeline, "file_fingerprints",
+                    side_effect=lambda paths: {"source": "digest"},
+                ),
+                mock.patch.object(run_pipeline, "output_fingerprints", return_value=published),
+            ):
+                for actual, expected in (
+                    (
+                        run_pipeline.demux_fingerprints(config, args, demux),
+                        {
+                            "runtime:demux-config": {
+                                "method": config["demux"]["method"],
+                                "barcode_dir": str(config["demux"]["barcode_dir"]),
+                            },
+                            "runtime:demux-command": demux,
+                        },
+                    ),
+                    (
+                        run_pipeline.preprocess_fingerprints(config, args, preprocess),
+                        {
+                            "runtime:preprocess-config": {
+                                "method": config["demux"]["method"],
+                                "threads": config["threads"],
+                                "porechop_abi_options": [], "chopper_options": ["-q", "16"],
+                            },
+                            "runtime:preprocess-command": preprocess,
+                            "runtime:preprocess-demux": published,
+                        },
+                    ),
+                    (
+                        run_pipeline.target_fingerprints(args, config, "COI", target_dir),
+                        {
+                            "runtime:ampliseq-params": parameters,
+                            "runtime:ampliseq-command": ampliseq_command(
+                                args.config_dir, target_dir, args.profile, True,
+                            ),
+                        },
+                    ),
+                ):
+                    legacy = {
+                        key: hashlib.sha256(
+                            json.dumps(value, sort_keys=isinstance(value, dict)).encode(),
+                        ).hexdigest()
+                        for key, value in expected.items()
+                    }
+                    if "runtime:ampliseq-params" in expected:
+                        legacy["runtime:profile"] = hashlib.sha256(b"local").hexdigest()
+                    self.assertEqual(actual, {"source": "digest", **legacy})
+
     def test_completion_outputs_match_checks_inventory_without_hashing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
@@ -494,6 +655,22 @@ class CommandRestartTests(unittest.TestCase):
             self.assertIn(
                 "-resume", ampliseq_command(FIXTURE / "config", target_dir, "local", True),
             )
+
+    def test_prepare_inputs_command_preserves_arguments(self) -> None:
+        args = SimpleNamespace(
+            manifest_tsv=Path("manifest.tsv"), config_dir=Path("config"),
+            output_dir=Path("out"),
+        )
+        self.assertEqual(
+            run_pipeline.prepare_inputs_command(args, "CytB"),
+            [
+                sys.executable, str(ROOT / "scripts/prepare_inputs.py"),
+                "--manifest", "manifest.tsv", "--config-dir", "config",
+                "--preprocessed-dir", str(Path("out").resolve() / "preprocessed"),
+                "--target", "CytB",
+                "--output-dir", str(Path("out").resolve() / "ampliseq"),
+            ],
+        )
 
     def test_multiple_targets_stop_on_failure_and_resume_independently(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

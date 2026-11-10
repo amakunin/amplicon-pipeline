@@ -2,6 +2,7 @@
 """Entrypoint scaffold for the fixed-order amplicon pipeline."""
 
 import argparse
+from collections.abc import Callable
 import csv
 import hashlib
 import json
@@ -132,25 +133,28 @@ def demux_command(
     return command
 
 
-def check_nextflow() -> None:
-    try:
-        output = subprocess.run(
-            ["nextflow", "-version"], capture_output=True, text=True, check=True
-        ).stdout
-    except FileNotFoundError:
-        raise SystemExit("nextflow not found on PATH (version 26 or higher required)")
-    version = re.search(r"version (\d+)", output)
-    if version is None or int(version.group(1)) < 26:
-        raise SystemExit(f"nextflow 26 or higher is required by ampliseq 3.0.0:{output}")
+def preprocess_command(args: argparse.Namespace) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/preprocess_reads.py"),
+        "--manifest", str(args.manifest_tsv.resolve()),
+        "--config-dir", str(args.config_dir.resolve()),
+        "--demux-dir", str(args.output_dir.resolve() / "demux"),
+        "--output-dir", str(args.output_dir.resolve() / "preprocessed"),
+        *(["--keep-intermediates"] if args.keep_intermediates else []),
+    ]
 
 
-def write_resource_config(target_dir: Path, threads: int) -> Path:
-    path = target_dir / "resources.config"
-    path.write_text(
-        f"executor.cpus = {threads}\n"
-        f"process.resourceLimits = [cpus: {threads}]\n"
-    )
-    return path
+def prepare_inputs_command(args: argparse.Namespace, target: str) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/prepare_inputs.py"),
+        "--manifest", str(args.manifest_tsv),
+        "--config-dir", str(args.config_dir),
+        "--preprocessed-dir", str(args.output_dir.resolve() / "preprocessed"),
+        "--target", target,
+        "--output-dir", str(args.output_dir.resolve() / "ampliseq"),
+    ]
 
 
 def ampliseq_command(
@@ -166,6 +170,39 @@ def ampliseq_command(
         "-c", str(target_dir / "resources.config"),
         "-params-file", str(target_dir / "params.yaml"),
     ]
+
+
+def asv_summary_command(
+    config: dict[str, Any], output_dir: Path, config_dir: Path,
+) -> list[str]:
+    output_dir = output_dir.resolve()
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/summarise_asvs.py"),
+    ]
+    for target in config["ampliseq"]["targets"]:
+        command += [
+            "--target", target, str(output_dir / "ampliseq" / target / "results"),
+        ]
+    return command + [
+        "--output-dir", str(output_dir / "summary"),
+        "--config-dir", str(config_dir.resolve()),
+    ]
+
+
+def read_count_command(args: argparse.Namespace) -> list[str]:
+    return [
+        sys.executable,
+        str(Path(__file__).resolve().parent / "scripts/count_reads.py"),
+        "--run-fastq", str(args.run_fastq_gz.resolve()),
+        "--manifest", str(args.manifest_tsv.resolve()),
+        "--config-dir", str(args.config_dir.resolve()),
+        "--output-dir", str(args.output_dir.resolve()),
+    ]
+
+
+def json_fingerprint(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
@@ -244,6 +281,18 @@ def completion_outputs_match(
     return actual_files == set(outputs["files"])
 
 
+def stage_completion_matches(
+    record_path: Path, output_dir: Path, fingerprints: dict[str, str] | None,
+    *, exclude_work: bool = False,
+) -> bool:
+    if not record_path.exists():
+        return False
+    record = json.loads(record_path.read_text())
+    if fingerprints is None:
+        return completion_outputs_match(record, output_dir, exclude_work)
+    return record == completion_record(fingerprints, output_dir, exclude_work)
+
+
 def demux_fingerprints(
     config: dict[str, Any],
     args: argparse.Namespace,
@@ -265,83 +314,11 @@ def demux_fingerprints(
         *resources,
     ]
     fingerprints = file_fingerprints(paths)
-    fingerprints["runtime:demux-config"] = hashlib.sha256(
-        json.dumps(
-            {"method": method, "barcode_dir": str(demux["barcode_dir"])},
-            sort_keys=True,
-        ).encode()
-    ).hexdigest()
-    fingerprints["runtime:demux-command"] = hashlib.sha256(
-        json.dumps(command).encode()
-    ).hexdigest()
-    return fingerprints
-
-
-def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
-    command = demux_command(
-        config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
+    fingerprints["runtime:demux-config"] = json_fingerprint(
+        {"method": method, "barcode_dir": str(demux["barcode_dir"])},
     )
-    demux_dir = args.output_dir.resolve() / "demux"
-    record_path = args.output_dir.resolve() / ".demux-completion.json"
-    print("Starting demultiplexing", flush=True)
-    fingerprints = None
-    check_integrity = getattr(args, "check_integrity", False)
-    if args.keep_intermediates and (check_integrity or not demux_dir.exists()):
-        print("Checking demux fingerprints", flush=True)
-        fingerprints = demux_fingerprints(config, args, command)
-
-    if demux_dir.exists():
-        if not args.keep_intermediates:
-            raise SystemExit(f"Refusing existing demux output: {demux_dir}")
-        if not record_path.exists():
-            raise SystemExit(
-                f"demux output exists without a completion record; "
-                f"refusing to overwrite: {demux_dir}"
-            )
-        record = json.loads(record_path.read_text())
-        if check_integrity:
-            outputs = output_fingerprints(demux_dir, exclude_work=True)
-            if (
-                record.get("status") == "complete"
-                and record.get("fingerprints") == fingerprints
-                and record.get("outputs") == outputs
-            ):
-                print("Skipping demultiplexing: integrity check passed")
-                return
-            if record.get("fingerprints") != fingerprints:
-                reason = "inputs or configuration changed"
-            else:
-                reason = "output files are missing, changed, or unexpected"
-        else:
-            if completion_outputs_match(record, demux_dir, exclude_work=True):
-                print("Skipping demultiplexing: recorded outputs are present")
-                return
-            reason = "output files are missing or unexpected, or completion data is invalid"
-        raise SystemExit(
-            f"demux output is stale ({reason}); refusing to overwrite: "
-            f"{demux_dir}"
-        )
-
-    subprocess.run(command, check=True)
-    if not demux_dir.is_dir():
-        raise FileNotFoundError(demux_dir)
-    if fingerprints is not None:
-        write_completion_record(
-            record_path, completion_record(fingerprints, demux_dir, exclude_work=True),
-        )
-    print("Demultiplexing complete", flush=True)
-
-
-def preprocess_command(args: argparse.Namespace) -> list[str]:
-    return [
-        sys.executable,
-        str(Path(__file__).resolve().parent / "scripts/preprocess_reads.py"),
-        "--manifest", str(args.manifest_tsv.resolve()),
-        "--config-dir", str(args.config_dir.resolve()),
-        "--demux-dir", str(args.output_dir.resolve() / "demux"),
-        "--output-dir", str(args.output_dir.resolve() / "preprocessed"),
-        *(["--keep-intermediates"] if args.keep_intermediates else []),
-    ]
+    fingerprints["runtime:demux-command"] = json_fingerprint(command)
+    return fingerprints
 
 
 def preprocess_fingerprints(
@@ -370,48 +347,8 @@ def preprocess_fingerprints(
         ("command", command),
         ("demux", output_fingerprints(demux_dir, exclude_work=True)),
     ):
-        fingerprints[f"runtime:preprocess-{key}"] = hashlib.sha256(
-            json.dumps(value, sort_keys=True).encode()
-        ).hexdigest()
+        fingerprints[f"runtime:preprocess-{key}"] = json_fingerprint(value)
     return fingerprints
-
-
-def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
-    command = preprocess_command(args)
-    output_dir = args.output_dir.resolve() / "preprocessed"
-    record_path = args.output_dir.resolve() / ".preprocess-completion.json"
-    print("Starting preprocessing", flush=True)
-    fingerprints = None
-    check_integrity = getattr(args, "check_integrity", False)
-    if args.keep_intermediates and (check_integrity or not output_dir.exists()):
-        print("Checking preprocessing fingerprints", flush=True)
-        fingerprints = preprocess_fingerprints(config, args, command)
-    if output_dir.exists():
-        if not args.keep_intermediates:
-            raise SystemExit(f"Refusing existing preprocessing output: {output_dir}")
-        if record_path.exists():
-            record = json.loads(record_path.read_text())
-            if check_integrity:
-                if record == completion_record(
-                    fingerprints, output_dir, exclude_work=True,
-                ):
-                    print("Skipping preprocessing: integrity check passed")
-                    return
-            elif completion_outputs_match(record, output_dir, exclude_work=True):
-                print("Skipping preprocessing: recorded outputs are present")
-                return
-        raise SystemExit(
-            "preprocessing output is incomplete or stale; "
-            f"refusing to overwrite: {output_dir}"
-        )
-    subprocess.run(command, check=True)
-    if not output_dir.is_dir():
-        raise FileNotFoundError(output_dir)
-    if fingerprints is not None:
-        write_completion_record(
-            record_path, completion_record(fingerprints, output_dir, exclude_work=True),
-        )
-    print("Preprocessing complete", flush=True)
 
 
 def target_fingerprints(
@@ -440,20 +377,122 @@ def target_fingerprints(
             for row in csv.DictReader(handle, delimiter="\t")
         )
     fingerprints = file_fingerprints(paths)
-    fingerprints["runtime:ampliseq-params"] = hashlib.sha256(
-        json.dumps(parameters, sort_keys=True).encode()
-    ).hexdigest()
-    fingerprints["runtime:ampliseq-command"] = hashlib.sha256(
-        json.dumps(
-            ampliseq_command(
-                args.config_dir, target_dir, args.profile, args.keep_intermediates,
-            )
-        ).encode()
-    ).hexdigest()
+    fingerprints["runtime:ampliseq-params"] = json_fingerprint(parameters)
+    fingerprints["runtime:ampliseq-command"] = json_fingerprint(
+        ampliseq_command(
+            args.config_dir, target_dir, args.profile, args.keep_intermediates,
+        ),
+    )
     fingerprints["runtime:profile"] = hashlib.sha256(
         args.profile.encode()
     ).hexdigest()
     return fingerprints
+
+
+def check_nextflow() -> None:
+    try:
+        output = subprocess.run(
+            ["nextflow", "-version"], capture_output=True, text=True, check=True
+        ).stdout
+    except FileNotFoundError:
+        raise SystemExit("nextflow not found on PATH (version 26 or higher required)")
+    version = re.search(r"version (\d+)", output)
+    if version is None or int(version.group(1)) < 26:
+        raise SystemExit(f"nextflow 26 or higher is required by ampliseq 3.0.0:{output}")
+
+
+def write_resource_config(target_dir: Path, threads: int) -> Path:
+    path = target_dir / "resources.config"
+    path.write_text(
+        f"executor.cpus = {threads}\n"
+        f"process.resourceLimits = [cpus: {threads}]\n"
+    )
+    return path
+
+
+def run_recorded_stage(
+    name: str, command: list[str], output_dir: Path, record_path: Path,
+    fingerprint_inputs: Callable[[], dict[str, str]], *,
+    keep_intermediates: bool, check_integrity: bool, refuse_existing: bool,
+    exclude_work: bool = False, cwd: Path | None = None,
+    cleanup: Callable[[], None] | None = None,
+) -> None:
+    print(f"Starting {name}", flush=True)
+    fingerprints = None
+    if keep_intermediates:
+        if check_integrity:
+            print(f"Checking {name} fingerprints", flush=True)
+            fingerprints = fingerprint_inputs()
+        if stage_completion_matches(
+            record_path, output_dir, fingerprints, exclude_work=exclude_work,
+        ):
+            reason = (
+                "integrity check passed" if check_integrity
+                else "recorded outputs are present"
+            )
+            print(f"Skipping {name}: {reason}", flush=True)
+            return
+
+    if refuse_existing and output_dir.exists():
+        if not keep_intermediates:
+            raise SystemExit(f"Refusing existing {name} output: {output_dir}")
+        if not record_path.exists():
+            reason = "without a completion record"
+        elif check_integrity:
+            record = json.loads(record_path.read_text())
+            if record.get("fingerprints") != fingerprints:
+                reason = "inputs or configuration changed"
+            else:
+                reason = "output files are missing, changed, or unexpected"
+        else:
+            reason = "output files are missing or unexpected, or completion data is invalid"
+        raise SystemExit(
+            f"{name} output is incomplete or stale ({reason}); "
+            f"refusing to overwrite: {output_dir}"
+        )
+
+    if keep_intermediates and fingerprints is None:
+        print(f"Fingerprinting {name} inputs", flush=True)
+        fingerprints = fingerprint_inputs()
+    if cwd is None:
+        subprocess.run(command, check=True)
+    else:
+        subprocess.run(command, cwd=cwd, check=True)
+    if not output_dir.is_dir():
+        raise FileNotFoundError(output_dir)
+    if not keep_intermediates and cleanup is not None:
+        cleanup()
+    if fingerprints is not None:
+        write_completion_record(
+            record_path, completion_record(fingerprints, output_dir, exclude_work),
+        )
+    print(f"{name} complete", flush=True)
+
+
+def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
+    command = demux_command(
+        config, args.run_fastq_gz, args.output_dir, args.keep_intermediates,
+    )
+    run_recorded_stage(
+        "demultiplexing", command, args.output_dir.resolve() / "demux",
+        args.output_dir.resolve() / ".demux-completion.json",
+        lambda: demux_fingerprints(config, args, command),
+        keep_intermediates=args.keep_intermediates,
+        check_integrity=getattr(args, "check_integrity", False),
+        refuse_existing=True, exclude_work=True,
+    )
+
+
+def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
+    command = preprocess_command(args)
+    run_recorded_stage(
+        "preprocessing", command, args.output_dir.resolve() / "preprocessed",
+        args.output_dir.resolve() / ".preprocess-completion.json",
+        lambda: preprocess_fingerprints(config, args, command),
+        keep_intermediates=args.keep_intermediates,
+        check_integrity=getattr(args, "check_integrity", False),
+        refuse_existing=True, exclude_work=True,
+    )
 
 
 def cleanup_ampliseq_work(target_dir: Path) -> None:
@@ -484,96 +523,23 @@ def run_ampliseq(
     for target in config["ampliseq"]["targets"]:
         print(f"Preparing ampliseq inputs: {target}", flush=True)
         subprocess.run(
-            [
-                sys.executable,
-                str(Path(__file__).resolve().parent / "scripts/prepare_inputs.py"),
-                "--manifest", str(args.manifest_tsv),
-                "--config-dir", str(args.config_dir),
-                "--preprocessed-dir", str(args.output_dir.resolve() / "preprocessed"),
-                "--target", target,
-                "--output-dir", str(ampliseq_dir),
-            ],
+            prepare_inputs_command(args, target),
             check=True,
         )
         target_dir = ampliseq_dir / target
         write_resource_config(target_dir, config["threads"])
-        fingerprints = None
-        record_path = target_dir / ".completion.json"
-        if args.keep_intermediates:
-            check_integrity = getattr(args, "check_integrity", False)
-            if check_integrity:
-                print(f"Checking ampliseq fingerprints: {target}", flush=True)
-                fingerprints = target_fingerprints(args, config, target, target_dir)
-                expected_record = completion_record(
-                    fingerprints, target_dir / "results",
-                )
-                if (
-                    record_path.exists()
-                    and json.loads(record_path.read_text()) == expected_record
-                ):
-                    print(
-                        f"Skipping ampliseq for {target}: integrity check passed",
-                        flush=True,
-                    )
-                    continue
-            elif record_path.exists() and completion_outputs_match(
-                json.loads(record_path.read_text()), target_dir / "results",
-            ):
-                print(
-                    f"Skipping ampliseq for {target}: recorded outputs are present",
-                    flush=True,
-                )
-                continue
-            if fingerprints is None:
-                print(f"Fingerprinting ampliseq inputs: {target}", flush=True)
-                fingerprints = target_fingerprints(args, config, target, target_dir)
-        print(f"Starting ampliseq: {target}", flush=True)
-        subprocess.run(
+        run_recorded_stage(
+            f"ampliseq for {target}",
             ampliseq_command(
                 args.config_dir, target_dir, args.profile, args.keep_intermediates,
             ),
-            cwd=target_dir,
-            check=True,
+            target_dir / "results", target_dir / ".completion.json",
+            lambda: target_fingerprints(args, config, target, target_dir),
+            keep_intermediates=args.keep_intermediates,
+            check_integrity=getattr(args, "check_integrity", False),
+            refuse_existing=False, cwd=target_dir,
+            cleanup=lambda: cleanup_ampliseq_work(target_dir),
         )
-        results_dir = target_dir / "results"
-        if not results_dir.is_dir():
-            raise FileNotFoundError(results_dir)
-        if not args.keep_intermediates:
-            cleanup_ampliseq_work(target_dir)
-        if fingerprints is not None:
-            write_completion_record(
-                record_path, completion_record(fingerprints, results_dir)
-            )
-        print(f"Ampliseq complete: {target}", flush=True)
-
-
-def asv_summary_command(
-    config: dict[str, Any], output_dir: Path, config_dir: Path,
-) -> list[str]:
-    output_dir = output_dir.resolve()
-    command = [
-        sys.executable,
-        str(Path(__file__).resolve().parent / "scripts/summarise_asvs.py"),
-    ]
-    for target in config["ampliseq"]["targets"]:
-        command += [
-            "--target", target, str(output_dir / "ampliseq" / target / "results"),
-        ]
-    return command + [
-        "--output-dir", str(output_dir / "summary"),
-        "--config-dir", str(config_dir.resolve()),
-    ]
-
-
-def read_count_command(args: argparse.Namespace) -> list[str]:
-    return [
-        sys.executable,
-        str(Path(__file__).resolve().parent / "scripts/count_reads.py"),
-        "--run-fastq", str(args.run_fastq_gz.resolve()),
-        "--manifest", str(args.manifest_tsv.resolve()),
-        "--config-dir", str(args.config_dir.resolve()),
-        "--output-dir", str(args.output_dir.resolve()),
-    ]
 
 
 def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:

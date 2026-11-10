@@ -698,7 +698,7 @@ Existing frozen fixtures and historical outputs remain unchanged.
 
 ## M11 - Full-scale validation
 
-[ ]
+[~]
 
 - Startup, validation and stage messages now flush to the terminal;
   fingerprinting reports file paths/sizes and completion.
@@ -709,6 +709,11 @@ Existing frozen fixtures and historical outputs remain unchanged.
 - All 55 offline tests pass; fresh-mode tests forbid hashing and record writes,
   verify existing-output refusal and flushed validation/hash progress.
   Retained-mode restart tests still pass; Pylance reports no errors.
+- Retained restart now checks completion-record fingerprint data and exact output
+  inventory without hashing; `--check-integrity` implies retained mode and
+  preserves full SHA-256 verification. Newly executed stages still write full
+  records. Fast demux, preprocessing and ampliseq reuse are covered by offline
+  tests; all 58 tests pass, and shell syntax and whitespace checks are clean.
 
 - Demux configuration now uses only `barcode_dir` for barcode resources and
   manifest mappings. Illumina derives F/R TSVs; hybrid derives ONT_nb24/R TSVs.

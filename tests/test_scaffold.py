@@ -141,6 +141,23 @@ class ConfigManifestTests(unittest.TestCase):
 
 
 class CommandRestartTests(unittest.TestCase):
+    def test_completion_outputs_match_checks_inventory_without_hashing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            (output / "reads.fastq.gz").write_bytes(b"reads")
+            record = run_pipeline.completion_record({"source": "digest"}, output)
+            (output / "reads.fastq.gz").write_bytes(b"modified")
+
+            with mock.patch.object(
+                run_pipeline, "sha256_file", side_effect=AssertionError("hashed"),
+            ):
+                self.assertTrue(run_pipeline.completion_outputs_match(record, output))
+                (output / "unexpected.txt").write_text("extra")
+                self.assertFalse(run_pipeline.completion_outputs_match(record, output))
+                (output / "unexpected.txt").unlink()
+                (output / "reads.fastq.gz").unlink()
+                self.assertFalse(run_pipeline.completion_outputs_match(record, output))
+
     def test_output_fingerprints_exclude_only_top_level_work(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
@@ -229,6 +246,7 @@ class CommandRestartTests(unittest.TestCase):
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
                 keep_intermediates=True,
+                check_integrity=True,
                 config_dir=FIXTURE / "config", manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=directory, profile="local",
             )
@@ -284,6 +302,13 @@ class CommandRestartTests(unittest.TestCase):
                 shutil.rmtree(scratch)
                 run_pipeline.run_preprocess(config, args)
                 run.assert_called_once_with(command, check=True)
+                args.check_integrity = False
+                with mock.patch.object(
+                    run_pipeline, "sha256_file",
+                    side_effect=AssertionError("fast restart hashed a file"),
+                ):
+                    run_pipeline.run_preprocess(config, args)
+                args.check_integrity = True
                 before = run_pipeline.output_fingerprints(output)
                 record_bytes = record.read_bytes()
                 reads.write_bytes(b"changed")
@@ -478,6 +503,7 @@ class CommandRestartTests(unittest.TestCase):
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
                 keep_intermediates=True,
+                check_integrity=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -560,6 +586,7 @@ class CommandRestartTests(unittest.TestCase):
             reference.write_text(">ref\nACGT\n")
             args = SimpleNamespace(
                 keep_intermediates=False,
+                check_integrity=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -627,6 +654,14 @@ class CommandRestartTests(unittest.TestCase):
                 self.assertTrue((target_dir / ".nextflow/cache/record").exists())
                 run_ampliseq(config, args)
                 self.assertEqual(len(nextflow_commands), 2)
+                args.check_integrity = False
+                with mock.patch.object(
+                    run_pipeline, "sha256_file",
+                    side_effect=AssertionError("fast restart hashed a file"),
+                ):
+                    run_ampliseq(config, args)
+                self.assertEqual(len(nextflow_commands), 2)
+                args.check_integrity = True
 
                 (target_dir / "results/overall_summary.tsv").unlink()
                 run_ampliseq(config, args)
@@ -703,6 +738,7 @@ class CommandRestartTests(unittest.TestCase):
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
                 keep_intermediates=True,
+                check_integrity=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -751,6 +787,46 @@ class CommandRestartTests(unittest.TestCase):
                     run_demux(config, args)
                 self.assertEqual(len(calls), 1)
 
+    def test_fast_demux_restart_uses_output_presence_without_hashing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output_dir = Path(temporary) / "output"
+            output_dir.mkdir()
+            run_fastq = Path(temporary) / "run.fastq.gz"
+            run_fastq.write_bytes(b"raw run")
+            config, _ = load_config(FIXTURE / "config")
+            args = SimpleNamespace(
+                keep_intermediates=True,
+                check_integrity=False,
+                config_dir=FIXTURE / "config",
+                manifest_tsv=FIXTURE / "manifest.tsv",
+                output_dir=output_dir,
+                run_fastq_gz=run_fastq,
+            )
+
+            def fake_run(command, **kwargs):
+                demux_dir = Path(command[command.index("--output-dir") + 1])
+                demux_dir.mkdir()
+                (demux_dir / "reads.fastq.gz").write_bytes(b"reads")
+                (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
+                return subprocess.CompletedProcess(command, 0)
+
+            with mock.patch.object(
+                run_pipeline.subprocess, "run", side_effect=fake_run,
+            ) as run:
+                run_demux(config, args)
+                run_fastq.write_bytes(b"changed input")
+                (output_dir / "demux/reads.fastq.gz").write_bytes(b"changed output")
+                with mock.patch.object(
+                    run_pipeline, "sha256_file",
+                    side_effect=AssertionError("fast restart hashed a file"),
+                ):
+                    run_demux(config, args)
+                    self.assertEqual(run.call_count, 1)
+
+                    (output_dir / "demux/unexpected.txt").write_text("extra")
+                    with self.assertRaisesRegex(SystemExit, "output files are missing or unexpected"):
+                        run_demux(config, args)
+
     def test_demux_failure_does_not_write_completion_record(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary) / "output"
@@ -760,6 +836,7 @@ class CommandRestartTests(unittest.TestCase):
             config, _ = load_config(FIXTURE / "config")
             args = SimpleNamespace(
                 keep_intermediates=True,
+                check_integrity=True,
                 config_dir=FIXTURE / "config",
                 manifest_tsv=FIXTURE / "manifest.tsv",
                 output_dir=output_dir,
@@ -1156,6 +1233,25 @@ class CliTests(unittest.TestCase):
                 self.assertIn("--keep-intermediates", shlex.split(command))
             ampliseq = [line for line in commands if line.startswith("Ampliseq command")]
             self.assertEqual(len(ampliseq), 4)
+            self.assertTrue(all("-resume" in shlex.split(line) for line in ampliseq))
+            self.assertFalse(output.exists())
+
+    def test_dry_run_check_integrity_implies_keep_intermediates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            result = subprocess.run(
+                [
+                    sys.executable, str(ROOT / "run_pipeline.py"), "run.fastq.gz",
+                    str(FIXTURE / "manifest.tsv"), str(FIXTURE / "config"),
+                    str(output), "--dry-run", "--check-integrity",
+                ],
+                capture_output=True, text=True, check=True,
+            )
+            commands = result.stdout.splitlines()
+            for prefix in ("Demux command:", "Preprocess command:"):
+                command = next(line for line in commands if line.startswith(prefix))
+                self.assertIn("--keep-intermediates", shlex.split(command))
+            ampliseq = [line for line in commands if line.startswith("Ampliseq command")]
             self.assertTrue(all("-resume" in shlex.split(line) for line in ampliseq))
             self.assertFalse(output.exists())
 

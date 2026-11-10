@@ -216,6 +216,34 @@ def completion_record(
     }
 
 
+def completion_outputs_match(
+    record: dict[str, Any], output_dir: Path, exclude_work: bool = False,
+) -> bool:
+    fingerprints = record.get("fingerprints")
+    outputs = record.get("outputs")
+    if (
+        record.get("status") != "complete"
+        or not isinstance(fingerprints, dict)
+        or not fingerprints
+        or not isinstance(outputs, dict)
+        or outputs.get("exists") is not True
+        or not isinstance(outputs.get("files"), dict)
+        or not outputs["files"]
+        or not output_dir.is_dir()
+    ):
+        return False
+
+    actual_files = {
+        str(path.relative_to(output_dir))
+        for path in output_dir.rglob("*")
+        if not (
+            exclude_work and path.relative_to(output_dir).parts[0] == "work"
+        )
+        and path.is_file()
+    }
+    return actual_files == set(outputs["files"])
+
+
 def demux_fingerprints(
     config: dict[str, Any],
     args: argparse.Namespace,
@@ -257,7 +285,8 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
     record_path = args.output_dir.resolve() / ".demux-completion.json"
     print("Starting demultiplexing", flush=True)
     fingerprints = None
-    if args.keep_intermediates:
+    check_integrity = getattr(args, "check_integrity", False)
+    if args.keep_intermediates and (check_integrity or not demux_dir.exists()):
         print("Checking demux fingerprints", flush=True)
         fingerprints = demux_fingerprints(config, args, command)
 
@@ -270,18 +299,24 @@ def run_demux(config: dict[str, Any], args: argparse.Namespace) -> None:
                 f"refusing to overwrite: {demux_dir}"
             )
         record = json.loads(record_path.read_text())
-        outputs = output_fingerprints(demux_dir, exclude_work=True)
-        if (
-            record.get("status") == "complete"
-            and record.get("fingerprints") == fingerprints
-            and record.get("outputs") == outputs
-        ):
-            print("Skipping demultiplexing: completion record matches")
-            return
-        if record.get("fingerprints") != fingerprints:
-            reason = "inputs or configuration changed"
+        if check_integrity:
+            outputs = output_fingerprints(demux_dir, exclude_work=True)
+            if (
+                record.get("status") == "complete"
+                and record.get("fingerprints") == fingerprints
+                and record.get("outputs") == outputs
+            ):
+                print("Skipping demultiplexing: integrity check passed")
+                return
+            if record.get("fingerprints") != fingerprints:
+                reason = "inputs or configuration changed"
+            else:
+                reason = "output files are missing, changed, or unexpected"
         else:
-            reason = "output files are missing, changed, or unexpected"
+            if completion_outputs_match(record, demux_dir, exclude_work=True):
+                print("Skipping demultiplexing: recorded outputs are present")
+                return
+            reason = "output files are missing or unexpected, or completion data is invalid"
         raise SystemExit(
             f"demux output is stale ({reason}); refusing to overwrite: "
             f"{demux_dir}"
@@ -347,19 +382,24 @@ def run_preprocess(config: dict[str, Any], args: argparse.Namespace) -> None:
     record_path = args.output_dir.resolve() / ".preprocess-completion.json"
     print("Starting preprocessing", flush=True)
     fingerprints = None
-    if args.keep_intermediates:
+    check_integrity = getattr(args, "check_integrity", False)
+    if args.keep_intermediates and (check_integrity or not output_dir.exists()):
         print("Checking preprocessing fingerprints", flush=True)
         fingerprints = preprocess_fingerprints(config, args, command)
     if output_dir.exists():
         if not args.keep_intermediates:
             raise SystemExit(f"Refusing existing preprocessing output: {output_dir}")
-        if (
-            record_path.exists()
-            and json.loads(record_path.read_text())
-            == completion_record(fingerprints, output_dir, exclude_work=True)
-        ):
-            print("Skipping preprocessing: completion record matches")
-            return
+        if record_path.exists():
+            record = json.loads(record_path.read_text())
+            if check_integrity:
+                if record == completion_record(
+                    fingerprints, output_dir, exclude_work=True,
+                ):
+                    print("Skipping preprocessing: integrity check passed")
+                    return
+            elif completion_outputs_match(record, output_dir, exclude_work=True):
+                print("Skipping preprocessing: recorded outputs are present")
+                return
         raise SystemExit(
             "preprocessing output is incomplete or stale; "
             f"refusing to overwrite: {output_dir}"
@@ -460,15 +500,33 @@ def run_ampliseq(
         fingerprints = None
         record_path = target_dir / ".completion.json"
         if args.keep_intermediates:
-            print(f"Checking ampliseq fingerprints: {target}", flush=True)
-            fingerprints = target_fingerprints(args, config, target, target_dir)
-            expected_record = completion_record(fingerprints, target_dir / "results")
-            if (
-                record_path.exists()
-                and json.loads(record_path.read_text()) == expected_record
+            check_integrity = getattr(args, "check_integrity", False)
+            if check_integrity:
+                print(f"Checking ampliseq fingerprints: {target}", flush=True)
+                fingerprints = target_fingerprints(args, config, target, target_dir)
+                expected_record = completion_record(
+                    fingerprints, target_dir / "results",
+                )
+                if (
+                    record_path.exists()
+                    and json.loads(record_path.read_text()) == expected_record
+                ):
+                    print(
+                        f"Skipping ampliseq for {target}: integrity check passed",
+                        flush=True,
+                    )
+                    continue
+            elif record_path.exists() and completion_outputs_match(
+                json.loads(record_path.read_text()), target_dir / "results",
             ):
-                print(f"Skipping ampliseq for {target}: completion record matches", flush=True)
+                print(
+                    f"Skipping ampliseq for {target}: recorded outputs are present",
+                    flush=True,
+                )
                 continue
+            if fingerprints is None:
+                print(f"Fingerprinting ampliseq inputs: {target}", flush=True)
+                fingerprints = target_fingerprints(args, config, target, target_dir)
         print(f"Starting ampliseq: {target}", flush=True)
         subprocess.run(
             ampliseq_command(
@@ -549,7 +607,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--keep-intermediates", action="store_true",
-        help="Retain stage work/cache and enable fingerprinted stage skips and Nextflow resume",
+        help="Retain stage work/cache and enable stage skips and Nextflow resume",
+    )
+    parser.add_argument(
+        "--check-integrity", action="store_true",
+        help="Enable full input/output fingerprint checks (also enables --keep-intermediates)",
     )
     parser.add_argument(
         "--dry-run",
@@ -557,12 +619,19 @@ def main() -> None:
         help="Print the loaded plan without creating outputs or running analysis",
     )
     args = parser.parse_args()
+    if args.check_integrity:
+        args.keep_intermediates = True
     if not args.dry_run:
+        mode = (
+            "integrity-checked restart" if args.check_integrity
+            else "fast retained restart" if args.keep_intermediates
+            else "fresh, no fingerprinting"
+        )
         print(
             f"Starting pipeline: input={args.run_fastq_gz.resolve()}; "
             f"manifest={args.manifest_tsv.resolve()}; config={args.config_dir.resolve()}; "
             f"output={args.output_dir.resolve()}; profile={args.profile}; "
-            f"mode={'fingerprinted restart' if args.keep_intermediates else 'fresh, no fingerprinting'}",
+            f"mode={mode}",
             flush=True,
         )
         if not args.keep_intermediates and args.output_dir.exists():

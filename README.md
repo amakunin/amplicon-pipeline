@@ -259,23 +259,31 @@ Without `--keep-intermediates`, the analysis output directory must not exist,
 even if empty. No fingerprints or completion records are computed/read/written,
 and no stages skip. Successful runs still clean stage-owned scratch.
 Dry-run does not hash, create outputs or reject an existing output directory.
-Startup, input-validation and stage messages are flushed to the terminal;
-retained-mode fingerprinting reports each file's path/size and completion.
+Startup, input-validation and stage messages are flushed to the terminal.
 
-With `--keep-intermediates`:
+With `--keep-intermediates`, completed stages are reused using a fast presence
+check: a valid completion record must contain fingerprint data, and its exact
+recorded output-file inventory must still exist. This does not hash input or
+output contents, so it does not detect changed inputs or modified-but-present
+outputs. Stages that run still write the existing full SHA-256 completion
+records.
 
-Demultiplexing is skipped only when its record matches the run, manifest,
-configuration, barcode resources and all published files. An existing partial
-or stale demux directory causes a clear error and is left untouched.
-Preprocessing follows the same skip-or-refuse policy, with fingerprints of
+Add `--check-integrity` to imply `--keep-intermediates` and perform the full
+input and output fingerprint comparisons described below. This detects changed
+inputs and outputs, but requires reading and hashing those files.
+
+Demultiplexing and preprocessing use the selected presence or integrity check
+for skips. With integrity checking, demultiplexing compares the run, manifest,
+configuration, barcode resources and published files. Preprocessing compares
 demux files, the manifest, barcode mappings, preprocessing source/helpers,
 effective options and threads, and all processed outputs. Summary or ampliseq
-settings do not invalidate preprocessing. Standalone preprocessing does not
+settings do not invalidate preprocessing. Existing incomplete demux or
+preprocessing output is left untouched. Standalone preprocessing does not
 write a driver completion record.
 Top-level demux/preprocessing `work/` is excluded from published-output
 fingerprints and downstream input fingerprints.
-For each target, ampliseq is skipped only when its input, configuration, selected profile
-and published result files match; otherwise Nextflow runs again.
+For each target, ampliseq uses the selected presence or integrity check for
+skips; otherwise Nextflow runs again.
 Pipeline `--keep-intermediates` retains stage work and Nextflow cache and
 enables Nextflow `-resume`; without it Nextflow runs without `-resume`.
 Each target uses its own `work/`. After success without the flag, only that

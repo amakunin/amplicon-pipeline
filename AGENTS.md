@@ -99,22 +99,25 @@ Sample summaries and plotting remain placeholders.
   Distinguish no reads, preprocessing loss, no ASVs, unresolved taxonomy, QC
   rejection and processing failure. Keep raw counts and classifications next
   to acceptance flags and reasons.
-- **Restart handling** is opt-in with `--keep-intermediates`, using SHA-256 fingerprints of relevant source inputs,
-  stage-specific effective configuration, barcode/reference resources and
-  generated stage inputs. Unrelated configuration changes do not invalidate
-  upstream stages.
-  Completion records also fingerprint published files by relative path; skip
-  only when both inputs and outputs match. Demux and preprocessing fail without
-  changing an existing incomplete or stale output directory. Ampliseq reruns
-  in its stable directory when its record is missing or stale, using Nextflow
-  `-resume` only with `--keep-intermediates`. Top-level demux/preprocessing
-  `work/` is excluded from output and downstream read fingerprints. Write
-  records atomically only after success. ASV aggregation always regenerates
-  its tables and provenance log, including when ampliseq targets are skipped.
-  Without the flag, require a nonexistent analysis output directory, do not
-  hash or read/write completion records, and never skip stages. Dry-run does
-  not hash or enforce output-directory absence. Startup/validation/stage and
-  per-file fingerprint progress messages are flushed.
+- **Restart handling** is opt-in with `--keep-intermediates`. By default,
+  completed stages are reused when their completion record contains
+  fingerprint data and the exact recorded output-file inventory is present;
+  this fast check does not hash input or output contents. `--check-integrity`
+  implies `--keep-intermediates` and requires full SHA-256 comparisons of
+  relevant source inputs, stage-specific effective configuration, resources
+  and outputs. Stages that run write full fingerprint records. Unrelated
+  configuration changes do not invalidate upstream stages in
+  integrity-checked mode. Demux and preprocessing fail without changing
+  existing incomplete output. Ampliseq reruns in its stable directory when
+  reuse evidence is missing or invalid, using Nextflow `-resume` with
+  `--keep-intermediates`. Top-level demux/preprocessing `work/` is excluded
+  from output and downstream read fingerprints. Write records atomically
+  only after success. ASV aggregation always regenerates its tables and
+  provenance log, including when ampliseq targets are skipped. Without
+  `--keep-intermediates`, require a nonexistent analysis output directory, do
+  not hash or read/write completion records, and never skip stages. Dry-run
+  does not hash or enforce output-directory absence. Startup/validation/stage
+  and per-file fingerprint progress messages are flushed.
 - **Never delete previous results** automatically, including on failed or
   changed runs.
 - **Missing samples are reported**, never silently treated as success.

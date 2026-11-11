@@ -5,6 +5,7 @@ import argparse
 from collections.abc import Callable
 import csv
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 import re
@@ -16,6 +17,32 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+PROGRESS_LOG: Path | None = None
+
+
+def write_progress_log(path: Path, message: str) -> None:
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    with path.open("a") as handle:
+        handle.write(f"{timestamp} {message}\n")
+
+
+def pipeline_progress(message: str) -> None:
+    print(message, flush=True)
+    if PROGRESS_LOG is not None:
+        write_progress_log(PROGRESS_LOG, message)
+
+
+def start_progress_log(
+    output_dir: Path, invocation: str, initial_messages: list[str],
+) -> None:
+    global PROGRESS_LOG
+    output_dir.mkdir(parents=True, exist_ok=True)
+    PROGRESS_LOG = output_dir / "pipeline.log"
+    write_progress_log(PROGRESS_LOG, f"Invocation: {invocation}")
+    for message in initial_messages:
+        write_progress_log(PROGRESS_LOG, message)
 
 
 @dataclass(frozen=True)
@@ -309,12 +336,12 @@ def json_fingerprint(value: Any) -> str:
 
 
 def sha256_file(path: Path) -> str:
-    print(f"Fingerprinting: {path} ({path.stat().st_size} bytes)", flush=True)
+    pipeline_progress(f"Fingerprinting: {path} ({path.stat().st_size} bytes)")
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
-    print(f"Fingerprint complete: {path}", flush=True)
+    pipeline_progress(f"Fingerprint complete: {path}")
     return digest.hexdigest()
 
 
@@ -516,11 +543,11 @@ def run_recorded_stage(
     exclude_work: bool = False, cwd: Path | None = None,
     cleanup: Callable[[], None] | None = None,
 ) -> None:
-    print(f"Starting {name}", flush=True)
+    pipeline_progress(f"Starting {name}")
     fingerprints = None
     if keep_intermediates:
         if check_integrity:
-            print(f"Checking {name} fingerprints", flush=True)
+            pipeline_progress(f"Checking {name} fingerprints")
             fingerprints = fingerprint_inputs()
         if stage_completion_matches(
             record_path, output_dir, fingerprints, exclude_work=exclude_work,
@@ -529,7 +556,7 @@ def run_recorded_stage(
                 "integrity check passed" if check_integrity
                 else "recorded outputs are present"
             )
-            print(f"Skipping {name}: {reason}", flush=True)
+            pipeline_progress(f"Skipping {name}: {reason}")
             return
 
     if refuse_existing and output_dir.exists():
@@ -551,7 +578,7 @@ def run_recorded_stage(
         )
 
     if keep_intermediates and fingerprints is None:
-        print(f"Fingerprinting {name} inputs", flush=True)
+        pipeline_progress(f"Fingerprinting {name} inputs")
         fingerprints = fingerprint_inputs()
     if cwd is None:
         subprocess.run(command, check=True)
@@ -565,7 +592,7 @@ def run_recorded_stage(
         write_completion_record(
             record_path, completion_record(fingerprints, output_dir, exclude_work),
         )
-    print(f"{name} complete", flush=True)
+    pipeline_progress(f"{name} complete")
 
 
 def run_demux(
@@ -622,7 +649,7 @@ def run_ampliseq(
     paths: PipelinePaths,
 ) -> None:
     for target in config["ampliseq"]["targets"]:
-        print(f"Preparing ampliseq inputs: {target}", flush=True)
+        pipeline_progress(f"Preparing ampliseq inputs: {target}")
         subprocess.run(
             prepare_inputs_command(paths, target),
             check=True,
@@ -654,6 +681,8 @@ def print_plan(config: dict[str, Any], samples: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    global PROGRESS_LOG
+    PROGRESS_LOG = None
     parser = argparse.ArgumentParser(
         description=(
             "ONT amplicon pipeline scaffold. Demultiplexing, preprocessing, ampliseq and ASV "
@@ -698,23 +727,30 @@ def main() -> None:
             else "fast retained restart" if args.keep_intermediates
             else "fresh, no fingerprinting"
         )
-        print(
+        starting_message = (
             f"Starting pipeline: input={paths.run_fastq.resolve()}; "
             f"manifest={paths.manifest.resolve()}; config={paths.config_dir.resolve()}; "
             f"output={paths.output_dir.resolve()}; profile={args.profile}; "
-            f"mode={mode}",
-            flush=True,
+            f"mode={mode}"
         )
+        print(starting_message, flush=True)
         if not args.keep_intermediates and paths.output_dir.exists():
             parser.exit(status=1, message=f"Output directory exists; refusing to overwrite: {paths.output_dir}\n")
-        print("Validating configuration and manifest", flush=True)
+        validation_message = "Validating configuration and manifest"
+        print(validation_message, flush=True)
     config, _ = load_config(paths.config_dir)
     samples = read_manifest(paths.manifest, config)
     if not args.dry_run:
         for path in (paths.run_fastq, paths.executor_config):
             if not path.is_file():
                 raise FileNotFoundError(path)
-        print(f"Input validation complete: {len(samples)} samples", flush=True)
+        validation_complete = f"Input validation complete: {len(samples)} samples"
+        print(validation_complete, flush=True)
+        start_progress_log(
+            paths.output_dir,
+            shlex.join(sys.argv),
+            [starting_message, validation_message, validation_complete],
+        )
     command = demux_command(
         config, paths, args.keep_intermediates,
     )
@@ -732,20 +768,23 @@ def main() -> None:
         print(f"ASV summary command: {shlex.join(summary_command)}")
         print(f"Read count command: {shlex.join(read_count_command(paths))}")
         return
-    print("Checking Nextflow", flush=True)
-    check_nextflow()
-    print("Nextflow check complete", flush=True)
-    run_demux(config, args, paths)
-    run_preprocess(config, args, paths)
-    run_ampliseq(config, args, paths)
-    print("Starting ASV aggregation and QC", flush=True)
-    subprocess.run(summary_command, check=True)
-    print("Starting read-flow accounting", flush=True)
-    subprocess.run(read_count_command(paths), check=True)
-    parser.exit(
-        status=1,
-        message="Stages after ASV aggregation are not implemented.\n",
-    )
+    try:
+        pipeline_progress("Checking Nextflow")
+        check_nextflow()
+        pipeline_progress("Nextflow check complete")
+        run_demux(config, args, paths)
+        run_preprocess(config, args, paths)
+        run_ampliseq(config, args, paths)
+        pipeline_progress("Starting ASV aggregation and QC")
+        subprocess.run(summary_command, check=True)
+        pipeline_progress("Starting read-flow accounting")
+        subprocess.run(read_count_command(paths), check=True)
+        parser.exit(
+            status=1,
+            message="Stages after ASV aggregation are not implemented.\n",
+        )
+    finally:
+        PROGRESS_LOG = None
 
 
 if __name__ == "__main__":

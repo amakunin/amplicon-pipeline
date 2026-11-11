@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import shlex
 import shutil
@@ -1221,11 +1222,42 @@ class CliTests(unittest.TestCase):
                 write.assert_not_called()
                 progress.assert_any_call("Validating configuration and manifest", flush=True)
                 progress.assert_any_call("Input validation complete: 5 samples", flush=True)
+                log = output / "pipeline.log"
+                lines = log.read_text().splitlines()
+                self.assertIn(f"Invocation: {shlex.join(argv)}", lines[0])
+                self.assertTrue(any("Starting demultiplexing" in line for line in lines))
+                self.assertTrue(any("demultiplexing complete" in line for line in lines))
+                for line in lines:
+                    timestamp = line.split(" ", 1)[0]
+                    self.assertIsNotNone(datetime.fromisoformat(timestamp).tzinfo)
                 self.assertFalse(list(output.rglob("*completion.json")))
                 with mock.patch.object(run_pipeline.subprocess, "run") as commands:
                     with self.assertRaises(SystemExit):
                         run_pipeline.main()
                     commands.assert_not_called()
+
+    def test_pipeline_log_appends_progress_for_resumed_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            self.addCleanup(setattr, run_pipeline, "PROGRESS_LOG", None)
+            with mock.patch("builtins.print"):
+                run_pipeline.start_progress_log(
+                    output, "run_pipeline.py first", ["Starting pipeline"],
+                )
+                run_pipeline.pipeline_progress("Starting demultiplexing")
+                run_pipeline.start_progress_log(
+                    output, "run_pipeline.py --keep-intermediates",
+                    ["Starting pipeline"],
+                )
+                run_pipeline.pipeline_progress("Skipping demultiplexing")
+            lines = (output / "pipeline.log").read_text().splitlines()
+            self.assertEqual(len(lines), 6)
+            self.assertTrue(lines[0].endswith("Invocation: run_pipeline.py first"))
+            self.assertTrue(lines[3].endswith(
+                "Invocation: run_pipeline.py --keep-intermediates"
+            ))
+            self.assertTrue(lines[2].endswith("Starting demultiplexing"))
+            self.assertTrue(lines[5].endswith("Skipping demultiplexing"))
 
     def test_hashing_progress_identifies_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1248,7 +1280,7 @@ class CliTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         for argument in (
-            "run_fastq_gz",
+            "run_fastq",
             "manifest_tsv",
             "config_dir",
             "output_dir",
@@ -1406,6 +1438,8 @@ class CliTests(unittest.TestCase):
         ), mock.patch.object(
             run_pipeline, "run_ampliseq"
         ), mock.patch.object(
+            run_pipeline, "start_progress_log"
+        ), mock.patch.object(
             run_pipeline.subprocess, "run", side_effect=failure
         ) as run:
             with self.assertRaises(subprocess.CalledProcessError) as raised:
@@ -1427,6 +1461,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(run_pipeline, "run_demux"),
             mock.patch.object(run_pipeline, "run_preprocess"),
             mock.patch.object(run_pipeline, "run_ampliseq"),
+            mock.patch.object(run_pipeline, "start_progress_log"),
             mock.patch.object(run_pipeline.subprocess, "run", side_effect=[
                 subprocess.CompletedProcess([], 0), failure,
             ]) as run,
@@ -1448,6 +1483,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(run_pipeline, "check_nextflow"),
             mock.patch.object(run_pipeline, "run_demux"),
             mock.patch.object(run_pipeline, "run_preprocess", side_effect=failure),
+            mock.patch.object(run_pipeline, "start_progress_log"),
             mock.patch.object(run_pipeline, "run_ampliseq") as ampliseq,
         ):
             with self.assertRaises(subprocess.CalledProcessError) as raised:

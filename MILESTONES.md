@@ -808,6 +808,10 @@ issues are resolved.
 - All 8 preprocessing tests pass with
   `python -m unittest discover -s tests -p test_preprocess_reads.py`;
   README usage and `run_pipeline.py --help` document both formats.
+- Non-dry runs log the command invocation and existing pipeline progress to
+  timestamped `pipeline.log` after validation; resumed runs append. Dry-run
+  output remains side-effect-free. All 37 driver tests pass with
+  `python -m unittest discover -s tests -p test_scaffold.py`.
 
 ## M12 - Summary plots
 

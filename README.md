@@ -130,6 +130,7 @@ Both example configurations skip Porechop ABI and Chopper inside ampliseq.
 
 ```text
 output_dir/
+  pipeline.log              # timestamped pipeline invocation and progress; appended on resume
   .demux-completion.json    # demux input and output fingerprints
   demux/                    # barcode-named FASTQs and demux_stats.txt
   .preprocess-completion.json # preprocessing input and output fingerprints
@@ -264,6 +265,9 @@ even if empty. No fingerprints or completion records are computed/read/written,
 and no stages skip. Successful runs still clean stage-owned scratch.
 Dry-run does not hash, create outputs or reject an existing output directory.
 Startup, input-validation and stage messages are flushed to the terminal.
+After startup validation, non-dry runs write these timestamped progress messages
+and the command-line invocation to `pipeline.log`. Resumed runs append to the
+same file. External tool output and errors continue to be shown directly.
 
 With `--keep-intermediates`, completed stages are reused using a fast presence
 check: a valid completion record must contain fingerprint data, and its exact

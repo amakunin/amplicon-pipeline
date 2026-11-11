@@ -800,6 +800,15 @@ issues are resolved.
   and both-skipped FASTQs match demultiplexed FASTQs byte-for-byte. Target
   completion records and ASV/read-flow summaries were produced.
 
+### M11f - Pipeline refinements [~]
+
+- Raw run FASTQs may be plain or gzip-compressed. Read counting detects gzip
+  by its file signature and handles either format; the original path is still
+  passed to Dorado.
+- All 8 preprocessing tests pass with
+  `python -m unittest discover -s tests -p test_preprocess_reads.py`;
+  README usage and `run_pipeline.py --help` document both formats.
+
 ## M12 - Summary plots
 
 [ ]

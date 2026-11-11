@@ -17,12 +17,16 @@ from scripts.prepare_inputs import demux_filename
 
 def count_fastq_reads(path: Path) -> int:
     count = 0
-    with gzip.open(path, "rb") as handle:
-        while handle.readline():
-            for _ in range(3):
-                if not handle.readline():
-                    raise ValueError(f"Incomplete FASTQ record: {path}")
-            count += 1
+    with path.open("rb") as raw:
+        is_gzip = raw.read(2) == b"\x1f\x8b"
+        raw.seek(0)
+        stream = gzip.GzipFile(fileobj=raw) if is_gzip else raw
+        with stream as handle:
+            while handle.readline():
+                for _ in range(3):
+                    if not handle.readline():
+                        raise ValueError(f"Incomplete FASTQ record: {path}")
+                count += 1
     return count
 
 

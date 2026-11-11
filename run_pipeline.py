@@ -660,7 +660,10 @@ def main() -> None:
             "aggregation and QC run; later stages are not implemented."
         )
     )
-    parser.add_argument("run_fastq_gz", type=Path, help="Raw run FASTQ (.fastq.gz)")
+    parser.add_argument(
+        "run_fastq_gz", type=Path, metavar="run_fastq",
+        help="Raw run FASTQ (plain or gzip-compressed)",
+    )
     parser.add_argument("manifest_tsv", type=Path, help="Sample manifest (.tsv)")
     parser.add_argument("config_dir", type=Path, help="Run configuration directory")
     parser.add_argument("output_dir", type=Path, help="Analysis output directory")

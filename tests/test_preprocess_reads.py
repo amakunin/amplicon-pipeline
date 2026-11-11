@@ -260,6 +260,18 @@ class PreprocessReadsTests(unittest.TestCase):
                     preprocess_reads(root / "manifest.tsv", root, demux, output)
             self.assertEqual(previous.read_text(), "existing")
 
+    def test_count_fastq_reads_accepts_plain_and_gzip_fastq(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fastq = b"@read\nACGT\n+\nIIII\n" * 2
+            plain = root / "plain.fastq"
+            plain.write_bytes(fastq)
+            compressed = root / "compressed.fastq.gz"
+            self.write_fastq(compressed, fastq)
+
+            self.assertEqual(count_fastq_reads(plain), 2)
+            self.assertEqual(count_fastq_reads(compressed), 2)
+
     def test_count_fastq_reads_rejects_incomplete_records(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "incomplete.fastq.gz"

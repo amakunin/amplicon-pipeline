@@ -51,12 +51,12 @@ always comes from the activated environment's `PATH`.
 ## Usage
 
 ```bash
-python run_pipeline.py run.fastq.gz manifest.tsv config_dir output_dir --profile local
+python run_pipeline.py run.fastq manifest.tsv config_dir output_dir --profile local
 ```
 
 | Argument | Description |
 |---|---|
-| `run.fastq.gz` | Raw, undemultiplexed run FASTQ |
+| `run.fastq` | Raw, undemultiplexed run FASTQ; plain or gzip-compressed |
 | `manifest.tsv` | Expected samples with their barcodes (schema not yet fixed) |
 | `config_dir` | Run configuration directory (see below) |
 | `output_dir` | Where results are written |
@@ -310,11 +310,12 @@ The driver runs read counting after aggregation on every invocation and
 prints its command in dry-run. It also runs separately without analysis tools:
 
 ```bash
-python scripts/count_reads.py --run-fastq run.fastq.gz \
+python scripts/count_reads.py --run-fastq run.fastq \
     --manifest manifest.tsv --config-dir config_dir --output-dir output_dir
 ```
 
-Requires persistent `preprocessed/read_counts.tsv` and canonical summaries.
+The raw run FASTQ may be plain or gzip-compressed. Requires persistent
+`preprocessed/read_counts.tsv` and canonical summaries.
 Writes `summary/read_flow.tsv` with node/parent IDs, stage, barcode identifiers,
 sample, target, expected/unexpected/unmatched label and read count.
 Barcode branches are sorted; target branches follow configuration order.

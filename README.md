@@ -131,6 +131,13 @@ Both example configurations skip Porechop ABI and Chopper inside ampliseq.
 ```text
 output_dir/
   pipeline.log              # timestamped pipeline invocation and progress; appended on resume
+  logs/
+    demultiplexing.o        # step stdout; paired .e file contains stderr
+    preprocessing.o
+    prepare_inputs.<target>.o
+    ampliseq.<target>.o
+    asv_aggregation.o
+    read_flow.o
   .demux-completion.json    # demux input and output fingerprints
   demux/                    # barcode-named FASTQs and demux_stats.txt
   .preprocess-completion.json # preprocessing input and output fingerprints
@@ -267,7 +274,15 @@ Dry-run does not hash, create outputs or reject an existing output directory.
 Startup, input-validation and stage messages are flushed to the terminal.
 After startup validation, non-dry runs write these timestamped progress messages
 and the command-line invocation to `pipeline.log`. Resumed runs append to the
-same file. External tool output and errors continue to be shown directly.
+same file. Step stdout and stderr are also written separately under `logs/`,
+using `{step}.{target}.o` and `{step}.{target}.e` names (the target part is
+omitted when not applicable); resumed runs append with timestamped run
+boundaries. Both streams are shown in the terminal by default. `--quiet`
+suppresses only step output there; pipeline progress remains visible. On step
+failure, the pipeline reports the step, exit code and stderr-log path in the
+terminal and `pipeline.log`, then stops without changing the tool's output.
+Dry-run creates neither output nor logs. These launcher logs are separate from
+Nextflow scheduler-managed job logs.
 
 With `--keep-intermediates`, completed stages are reused using a fast presence
 check: a valid completion record must contain fingerprint data, and its exact

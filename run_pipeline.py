@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import json
+import os
 import re
+import selectors
 import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO, TextIO
 
 import yaml
 
@@ -43,6 +45,70 @@ def start_progress_log(
     write_progress_log(PROGRESS_LOG, f"Invocation: {invocation}")
     for message in initial_messages:
         write_progress_log(PROGRESS_LOG, message)
+
+
+def write_step_log_boundary(handle: BinaryIO, message: str) -> None:
+    if handle.tell():
+        handle.write(b"\n")
+    handle.write(f"=== {message} ===\n".encode())
+
+
+def write_terminal_output(data: bytes, stream: TextIO) -> None:
+    binary_stream = getattr(stream, "buffer", None)
+    if binary_stream is None:
+        encoding = stream.encoding or "utf-8"
+        stream.write(data.decode(encoding, errors="replace"))
+    else:
+        binary_stream.write(data)
+    stream.flush()
+
+
+def run_logged_step(
+    name: str, log_name: str, command: list[str], output_dir: Path, *,
+    quiet: bool, cwd: Path | None = None,
+) -> None:
+    logs_dir = output_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = logs_dir / f"{log_name}.o"
+    stderr_path = logs_dir / f"{log_name}.e"
+    started = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    with stdout_path.open("ab") as stdout_log, stderr_path.open("ab") as stderr_log:
+        write_step_log_boundary(stdout_log, f"Run started: {started}")
+        write_step_log_boundary(stderr_log, f"Run started: {started}")
+        process = subprocess.Popen(
+            command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, (stdout_log, sys.stdout))
+            selector.register(process.stderr, selectors.EVENT_READ, (stderr_log, sys.stderr))
+            while selector.get_map():
+                for key, _ in selector.select():
+                    pipe = key.fileobj
+                    data = os.read(pipe.fileno(), 65536)
+                    if data:
+                        log, terminal = key.data
+                        log.write(data)
+                        log.flush()
+                        if not quiet:
+                            write_terminal_output(data, terminal)
+                    else:
+                        selector.unregister(pipe)
+                        pipe.close()
+
+        return_code = process.wait()
+        finished = datetime.now().astimezone().isoformat(timespec="seconds")
+        for log in (stdout_log, stderr_log):
+            write_step_log_boundary(
+                log, f"Run finished: {finished}; exit code {return_code}",
+            )
+
+    if return_code:
+        pipeline_progress(
+            f"Failed {name} (exit code {return_code}); stderr log: {stderr_path}"
+        )
+        raise subprocess.CalledProcessError(return_code, command)
 
 
 @dataclass(frozen=True)
@@ -541,7 +607,8 @@ def run_recorded_stage(
     fingerprint_inputs: Callable[[], dict[str, str]], *,
     keep_intermediates: bool, check_integrity: bool, refuse_existing: bool,
     exclude_work: bool = False, cwd: Path | None = None,
-    cleanup: Callable[[], None] | None = None,
+    cleanup: Callable[[], None] | None = None, log_dir: Path | None = None,
+    log_name: str | None = None, quiet: bool = False,
 ) -> None:
     pipeline_progress(f"Starting {name}")
     fingerprints = None
@@ -580,10 +647,10 @@ def run_recorded_stage(
     if keep_intermediates and fingerprints is None:
         pipeline_progress(f"Fingerprinting {name} inputs")
         fingerprints = fingerprint_inputs()
-    if cwd is None:
-        subprocess.run(command, check=True)
-    else:
-        subprocess.run(command, cwd=cwd, check=True)
+    run_logged_step(
+        name, log_name or name.replace(" ", "_"), command,
+        log_dir or output_dir.parent, quiet=quiet, cwd=cwd,
+    )
     if not output_dir.is_dir():
         raise FileNotFoundError(output_dir)
     if not keep_intermediates and cleanup is not None:
@@ -606,7 +673,8 @@ def run_demux(
         lambda: demux_fingerprints(config, paths, command),
         keep_intermediates=args.keep_intermediates,
         check_integrity=getattr(args, "check_integrity", False),
-        refuse_existing=True, exclude_work=True,
+        refuse_existing=True, exclude_work=True, log_dir=paths.output_dir,
+        log_name="demultiplexing", quiet=getattr(args, "quiet", False),
     )
 
 
@@ -619,7 +687,8 @@ def run_preprocess(
         lambda: preprocess_fingerprints(config, paths, command),
         keep_intermediates=args.keep_intermediates,
         check_integrity=getattr(args, "check_integrity", False),
-        refuse_existing=True, exclude_work=True,
+        refuse_existing=True, exclude_work=True, log_dir=paths.output_dir,
+        log_name="preprocessing", quiet=getattr(args, "quiet", False),
     )
 
 
@@ -650,9 +719,10 @@ def run_ampliseq(
 ) -> None:
     for target in config["ampliseq"]["targets"]:
         pipeline_progress(f"Preparing ampliseq inputs: {target}")
-        subprocess.run(
-            prepare_inputs_command(paths, target),
-            check=True,
+        run_logged_step(
+            f"input preparation for {target}", f"prepare_inputs.{target}",
+            prepare_inputs_command(paths, target), paths.output_dir,
+            quiet=getattr(args, "quiet", False),
         )
         target_paths = TargetPaths(paths.ampliseq / target, paths.executor_config)
         write_resource_config(target_paths, config["threads"])
@@ -665,6 +735,8 @@ def run_ampliseq(
             check_integrity=getattr(args, "check_integrity", False),
             refuse_existing=False, cwd=target_paths.directory,
             cleanup=lambda: cleanup_ampliseq_work(target_paths),
+            log_dir=paths.output_dir, log_name=f"ampliseq.{target}",
+            quiet=getattr(args, "quiet", False),
         )
 
 
@@ -709,6 +781,10 @@ def main() -> None:
     parser.add_argument(
         "--check-integrity", action="store_true",
         help="Enable full input/output fingerprint checks (also enables --keep-intermediates)",
+    )
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="Suppress step stdout/stderr in the terminal while keeping pipeline progress visible",
     )
     parser.add_argument(
         "--dry-run",
@@ -776,9 +852,15 @@ def main() -> None:
         run_preprocess(config, args, paths)
         run_ampliseq(config, args, paths)
         pipeline_progress("Starting ASV aggregation and QC")
-        subprocess.run(summary_command, check=True)
+        run_logged_step(
+            "ASV aggregation and QC", "asv_aggregation", summary_command,
+            paths.output_dir, quiet=args.quiet,
+        )
         pipeline_progress("Starting read-flow accounting")
-        subprocess.run(read_count_command(paths), check=True)
+        run_logged_step(
+            "read-flow accounting", "read_flow", read_count_command(paths),
+            paths.output_dir, quiet=args.quiet,
+        )
         parser.exit(
             status=1,
             message="Stages after ASV aggregation are not implemented.\n",

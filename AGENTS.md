@@ -21,10 +21,11 @@ the development plan is in [MILESTONES.md](MILESTONES.md).
   defensive checks or error aggregation unless requested. Let standard Python
   errors surface (`KeyError`, `FileNotFoundError`, ...). Add a clear message
   only where the standard error would be confusing, and say where.
-- **Pass external tool errors through.** Run Dorado, seqtk, Nextflow and other
-  tools without capturing or rewrapping their output, so the user sees the
-  tool's own error message. Use `subprocess.run(check=True)` and let a
-  non-zero exit stop the run. Do not swallow or summarise tool errors.
+- **Preserve external tool diagnostics.** The pipeline owns step stdout/stderr
+  logs; by default also show both streams in the terminal. Quiet mode suppresses
+  step output, not pipeline progress. On failure, identify the step, exit code
+  and error log; preserve the tool's output unchanged and stop with a non-zero
+  exit. Step scripts may continue to print normally.
 - **Report each step briefly:** files changed with approximate line counts,
   what was verified and how to rerun it, and open questions. Then stop at the
   review gate: do not start the next submilestone or top-level milestone, chain
@@ -197,8 +198,8 @@ bash -n scripts/demux_hybrid.sh scripts/demux_illumina.sh
   Stage-specific tests stay in their own feature files, such as
   `tests/test_prepare_inputs.py`.
 - Tests must not require Dorado, Nextflow, containers or network access.
-  Integration runs against the fixture are manual and recorded in the
-  milestone notes.
+  The developer runs end-to-end fixture tests and records them in the milestone
+  notes. Agents do not run them or check external references for them.
 - Do not regenerate or edit `tests/fixtures/small/` without approval. Verify
   it with `sha256sum -c checksums.sha256` from that directory.
 - Check actual output against expected behaviour. Do not weaken a test to make

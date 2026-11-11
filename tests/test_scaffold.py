@@ -1,7 +1,9 @@
 """Driver configuration, command/restart and CLI tests without external tools."""
 
+import contextlib
 import gzip
 import hashlib
+import io
 import json
 import os
 from datetime import datetime
@@ -238,7 +240,7 @@ class CommandRestartTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0)
 
                 with mock.patch.object(
-                    run_pipeline.subprocess, "run", side_effect=failure,
+                    run_pipeline, "run_logged_step", side_effect=failure,
                 ) as run:
                     with self.assertRaises(subprocess.CalledProcessError) as raised:
                         run_pipeline.run_recorded_stage(
@@ -249,17 +251,118 @@ class CommandRestartTests(unittest.TestCase):
                     self.assertIs(raised.exception, failure)
                     cleanup.assert_not_called()
                     self.assertFalse(record.exists())
-                    run.side_effect = execute
+                    run.side_effect = lambda _name, _log_name, command, _output_dir, **kwargs: execute(
+                        command, **kwargs,
+                    )
                     run_pipeline.run_recorded_stage(
                         "test", command, output, record, fingerprints,
                         keep_intermediates=keep, check_integrity=False,
                         refuse_existing=False, cwd=root, cleanup=cleanup,
                     )
-                    run.assert_called_with(command, cwd=root, check=True)
+                    run.assert_called_with(
+                        "test", "test", command, root, quiet=False, cwd=root,
+                    )
                 self.assertEqual(record.exists(), keep)
                 self.assertEqual(cleanup.call_count, int(not keep))
                 self.assertEqual(fingerprints.call_count, 2 if keep else 0)
                 self.assertEqual((output / "published.tsv").read_text(), "result")
+
+    def test_logged_step_streams_and_appends_separate_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            stage_output = output / "demux"
+            stage_output.mkdir()
+            (stage_output / "reads.fastq").write_bytes(b"reads")
+            fingerprints = run_pipeline.output_fingerprints(stage_output)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            command = [
+                sys.executable, "-c",
+                "import sys; sys.stdout.write('first out\\n'); "
+                "sys.stderr.write('first err\\n')",
+            ]
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                run_pipeline.run_logged_step(
+                    "test step", "test.target", command, output, quiet=False,
+                )
+                run_pipeline.run_logged_step(
+                    "test step", "test.target",
+                    [
+                        sys.executable, "-c",
+                        "import sys; sys.stdout.write('second out\\n'); "
+                        "sys.stderr.write('second err\\n')",
+                    ],
+                    output, quiet=True,
+                )
+
+            self.assertEqual(stdout.getvalue(), "first out\n")
+            self.assertEqual(stderr.getvalue(), "first err\n")
+            stdout_log = (output / "logs/test.target.o").read_bytes()
+            stderr_log = (output / "logs/test.target.e").read_bytes()
+            self.assertEqual(stdout_log.count(b"Run started:"), 2)
+            self.assertEqual(stderr_log.count(b"Run started:"), 2)
+            self.assertIn(b"first out\n", stdout_log)
+            self.assertIn(b"second out\n", stdout_log)
+            self.assertIn(b"first err\n", stderr_log)
+            self.assertIn(b"second err\n", stderr_log)
+            self.assertEqual(stdout_log.count(b"Run finished:"), 2)
+            self.assertEqual(stderr_log.count(b"Run finished:"), 2)
+            self.assertEqual(
+                run_pipeline.output_fingerprints(stage_output), fingerprints,
+            )
+
+    def test_logged_step_drains_large_concurrent_streams(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            command = [
+                sys.executable, "-c",
+                "import sys; "
+                "[(sys.stdout.buffer.write(b'O' * 65536), sys.stdout.flush(), "
+                "sys.stderr.buffer.write(b'E' * 65536), sys.stderr.flush()) "
+                "for _ in range(32)]",
+            ]
+            run_pipeline.run_logged_step(
+                "large output", "large", command, output, quiet=True,
+            )
+            self.assertEqual(
+                (output / "logs/large.o").read_bytes().count(b"O"),
+                32 * 65536,
+            )
+            self.assertEqual(
+                (output / "logs/large.e").read_bytes().count(b"E"),
+                32 * 65536,
+            )
+
+    def test_logged_step_failure_reports_stderr_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            progress_log = output / "pipeline.log"
+            run_pipeline.PROGRESS_LOG = progress_log
+            self.addCleanup(setattr, run_pipeline, "PROGRESS_LOG", None)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            command = [
+                sys.executable, "-c",
+                "import sys; print('partial stdout'); "
+                "print('tool failure', file=sys.stderr); sys.exit(7)",
+            ]
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    run_pipeline.run_logged_step(
+                        "demultiplexing", "demultiplexing", command, output,
+                        quiet=False,
+                    )
+
+            stderr_path = output / "logs/demultiplexing.e"
+            message = (
+                f"Failed demultiplexing (exit code 7); stderr log: {stderr_path}"
+            )
+            self.assertEqual(raised.exception.returncode, 7)
+            self.assertEqual(stdout.getvalue(), f"partial stdout\n{message}\n")
+            self.assertEqual(stderr.getvalue(), "tool failure\n")
+            self.assertIn(message, progress_log.read_text())
+            self.assertIn(b"partial stdout\n", (output / "logs/demultiplexing.o").read_bytes())
+            self.assertIn(b"tool failure\n", stderr_path.read_bytes())
 
     def test_stage_completion_matches_selects_fast_or_strict_checks(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -537,13 +640,13 @@ class CommandRestartTests(unittest.TestCase):
             output = directory / "preprocessed"
             record = directory / ".preprocess-completion.json"
 
-            def fake_run(command, **kwargs):
+            def fake_run(_name, _log_name, command, _output_dir, **kwargs):
                 output.mkdir()
                 (output / "reads.fastq.gz").write_bytes(b"processed")
                 (output / "excluded_samples.tsv").write_text("sample_id\treason\n")
                 return subprocess.CompletedProcess(command, 0)
 
-            with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fake_run) as run:
+            with mock.patch.object(run_pipeline, "run_logged_step", side_effect=fake_run) as run:
                 run_pipeline.run_preprocess(config, args, paths)
                 scratch = output / "work"
                 scratch.mkdir()
@@ -551,7 +654,10 @@ class CommandRestartTests(unittest.TestCase):
                 run_pipeline.run_preprocess(config, args, paths)
                 shutil.rmtree(scratch)
                 run_pipeline.run_preprocess(config, args, paths)
-                run.assert_called_once_with(command, check=True)
+                run.assert_called_once_with(
+                    "preprocessing", "preprocessing", command, directory,
+                    quiet=False, cwd=None,
+                )
                 args.check_integrity = False
                 with mock.patch.object(
                     run_pipeline, "sha256_file",
@@ -601,11 +707,11 @@ class CommandRestartTests(unittest.TestCase):
             (args.output_dir / "demux").mkdir(parents=True)
             failure = subprocess.CalledProcessError(7, command)
 
-            def fail_run(command, **kwargs):
+            def fail_run(_name, _log_name, command, _output_dir, **kwargs):
                 (args.output_dir / "preprocessed").mkdir()
                 raise failure
 
-            with mock.patch.object(run_pipeline.subprocess, "run", side_effect=fail_run):
+            with mock.patch.object(run_pipeline, "run_logged_step", side_effect=fail_run):
                 with self.assertRaises(subprocess.CalledProcessError) as raised:
                     run_pipeline.run_preprocess(config, args, paths)
                 self.assertIs(raised.exception, failure)
@@ -805,7 +911,7 @@ class CommandRestartTests(unittest.TestCase):
             launches = []
             fail_target = "CytB"
 
-            def fake_run(command, **kwargs):
+            def fake_run(_name, _log_name, command, _output_dir, **kwargs):
                 if command[0] == "nextflow":
                     target_dir = kwargs["cwd"]
                     launches.append(target_dir.name)
@@ -834,9 +940,7 @@ class CommandRestartTests(unittest.TestCase):
                     )
                 return subprocess.CompletedProcess(command, 0)
 
-            with mock.patch.object(
-                run_pipeline.subprocess, "run", side_effect=fake_run
-            ):
+            with mock.patch.object(run_pipeline, "run_logged_step", side_effect=fake_run):
                 with self.assertRaises(subprocess.CalledProcessError):
                     run_ampliseq(config, args, paths)
                 self.assertEqual(launches, ["COI", "CytB"])
@@ -891,7 +995,7 @@ class CommandRestartTests(unittest.TestCase):
             nextflow_commands = []
             fail_nextflow = [True]
 
-            def fake_run(command, **kwargs):
+            def fake_run(_name, _log_name, command, _output_dir, **kwargs):
                 if "prepare_inputs.py" in command[1]:
                     self.assertEqual(
                         command[command.index("--preprocessed-dir") + 1],
@@ -932,9 +1036,7 @@ class CommandRestartTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             record_path = output_dir / "ampliseq/CytB/.completion.json"
-            with mock.patch.object(
-                run_pipeline.subprocess, "run", side_effect=fake_run
-            ):
+            with mock.patch.object(run_pipeline, "run_logged_step", side_effect=fake_run):
                 with self.assertRaises(subprocess.CalledProcessError):
                     run_ampliseq(config, args, paths)
                 self.assertFalse(record_path.exists())
@@ -1045,7 +1147,7 @@ class CommandRestartTests(unittest.TestCase):
             )
             calls = []
 
-            def fake_run(command, **kwargs):
+            def fake_run(_name, _log_name, command, _output_dir, **kwargs):
                 calls.append(command)
                 demux_dir = Path(command[command.index("--output-dir") + 1])
                 demux_dir.mkdir()
@@ -1053,9 +1155,7 @@ class CommandRestartTests(unittest.TestCase):
                 (demux_dir / "demux_stats.txt").write_text("reads\t1\n")
                 return subprocess.CompletedProcess(command, 0)
 
-            with mock.patch.object(
-                run_pipeline.subprocess, "run", side_effect=fake_run
-            ):
+            with mock.patch.object(run_pipeline, "run_logged_step", side_effect=fake_run):
                 run_demux(config, args, paths)
                 record_path = output_dir / ".demux-completion.json"
                 self.assertTrue(record_path.exists())
@@ -1105,7 +1205,7 @@ class CommandRestartTests(unittest.TestCase):
                 run_fastq, args.manifest_tsv, args.config_dir, output_dir,
             )
 
-            def fake_run(command, **kwargs):
+            def fake_run(_name, _log_name, command, _output_dir, **kwargs):
                 demux_dir = Path(command[command.index("--output-dir") + 1])
                 demux_dir.mkdir()
                 (demux_dir / "reads.fastq.gz").write_bytes(b"reads")
@@ -1113,7 +1213,7 @@ class CommandRestartTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             with mock.patch.object(
-                run_pipeline.subprocess, "run", side_effect=fake_run,
+                run_pipeline, "run_logged_step", side_effect=fake_run,
             ) as run:
                 run_demux(config, args, paths)
                 run_fastq.write_bytes(b"changed input")
@@ -1148,14 +1248,14 @@ class CommandRestartTests(unittest.TestCase):
                 run_fastq, args.manifest_tsv, args.config_dir, output_dir,
             )
 
-            def fail_after_partial_output(command, **kwargs):
+            def fail_after_partial_output(_name, _log_name, command, _output_dir, **kwargs):
                 demux_dir = Path(command[command.index("--output-dir") + 1])
                 (demux_dir / "work").mkdir(parents=True)
                 raise subprocess.CalledProcessError(1, command)
 
             with mock.patch.object(
-                run_pipeline.subprocess,
-                "run",
+                run_pipeline,
+                "run_logged_step",
                 side_effect=fail_after_partial_output,
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
@@ -1190,10 +1290,10 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "output"
             argv = [
-                "run_pipeline.py", str(FIXTURE / "run.fastq.gz"),
+                "run_pipeline.py", "--quiet", str(FIXTURE / "run.fastq.gz"),
                 str(FIXTURE / "manifest.tsv"), str(FIXTURE / "config"), str(output),
             ]
-            def run(command, **kwargs):
+            def run(_name, _log_name, command, _output_dir, **kwargs):
                 if "demux_" in command[1] or "preprocess_reads.py" in command[1]:
                     Path(command[command.index("--output-dir") + 1]).mkdir(parents=True)
                 elif "prepare_inputs.py" in command[1]:
@@ -1207,7 +1307,9 @@ class CliTests(unittest.TestCase):
             with (
                 mock.patch.object(sys, "argv", argv),
                 mock.patch.object(run_pipeline, "check_nextflow"),
-                mock.patch.object(run_pipeline.subprocess, "run", side_effect=run),
+                mock.patch.object(
+                    run_pipeline, "run_logged_step", side_effect=run,
+                ) as steps,
                 mock.patch.object(run_pipeline, "sha256_file", side_effect=AssertionError("hashing")),
                 mock.patch.object(run_pipeline, "output_fingerprints", side_effect=AssertionError("hashing")),
                 mock.patch.object(run_pipeline, "demux_fingerprints", side_effect=AssertionError("hashing")),
@@ -1219,9 +1321,11 @@ class CliTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as raised:
                     run_pipeline.main()
                 self.assertEqual(raised.exception.code, 1)
+                self.assertTrue(all(call.kwargs["quiet"] for call in steps.call_args_list))
                 write.assert_not_called()
                 progress.assert_any_call("Validating configuration and manifest", flush=True)
                 progress.assert_any_call("Input validation complete: 5 samples", flush=True)
+                progress.assert_any_call("Starting demultiplexing", flush=True)
                 log = output / "pipeline.log"
                 lines = log.read_text().splitlines()
                 self.assertIn(f"Invocation: {shlex.join(argv)}", lines[0])
@@ -1231,7 +1335,7 @@ class CliTests(unittest.TestCase):
                     timestamp = line.split(" ", 1)[0]
                     self.assertIsNotNone(datetime.fromisoformat(timestamp).tzinfo)
                 self.assertFalse(list(output.rglob("*completion.json")))
-                with mock.patch.object(run_pipeline.subprocess, "run") as commands:
+                with mock.patch.object(run_pipeline, "run_logged_step") as commands:
                     with self.assertRaises(SystemExit):
                         run_pipeline.main()
                     commands.assert_not_called()
@@ -1286,6 +1390,7 @@ class CliTests(unittest.TestCase):
             "output_dir",
             "--profile",
             "--dry-run",
+            "--quiet",
         ):
             self.assertIn(argument, result.stdout)
         self.assertIn("later", result.stdout)
@@ -1368,17 +1473,20 @@ class CliTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0)
                 return real_run(command, **kwargs)
 
+            def fake_logged_step(_name, _log_name, command, _output_dir, **kwargs):
+                return fake_run(command, cwd=kwargs.get("cwd"))
+
             with mock.patch.object(sys, "argv", argv), mock.patch.object(
                 run_pipeline, "check_nextflow"
             ), mock.patch.object(
                 run_pipeline, "load_config", return_value=(config, targets)
             ), mock.patch.object(
-                run_pipeline.subprocess, "run", side_effect=fake_run
+                run_pipeline, "run_logged_step", side_effect=fake_logged_step
             ) as run:
                 with self.assertRaises(SystemExit) as raised:
                     run_pipeline.main()
                 self.assertEqual(raised.exception.code, 1)
-                commands = [call.args[0] for call in run.call_args_list]
+                commands = [call.args[2] for call in run.call_args_list]
                 self.assertIn("demux_illumina.sh", commands[0][1])
                 self.assertIn("preprocess_reads.py", commands[1][1])
                 self.assertIn("prepare_inputs.py", commands[2][1])
@@ -1397,7 +1505,7 @@ class CliTests(unittest.TestCase):
                 ))
                 self.assertEqual(commands[5], expected_counts)
                 self.assertEqual(len(commands), 6)
-                self.assertEqual(run.call_args_list[4].kwargs, {"check": True})
+                self.assertEqual(run.call_args_list[4].kwargs, {"quiet": False})
                 summary = Path(argv[-1]) / "summary"
                 before = {
                     path.name: path.read_bytes() for path in summary.iterdir()
@@ -1417,7 +1525,7 @@ class CliTests(unittest.TestCase):
                     run_pipeline.main()
                 self.assertEqual(raised.exception.code, 1)
                 self.assertEqual(
-                    [call.args[0] for call in run.call_args_list][1:],
+                    [call.args[2] for call in run.call_args_list][1:],
                     [expected_summary, expected_counts],
                 )
                 self.assertEqual(
@@ -1440,14 +1548,14 @@ class CliTests(unittest.TestCase):
         ), mock.patch.object(
             run_pipeline, "start_progress_log"
         ), mock.patch.object(
-            run_pipeline.subprocess, "run", side_effect=failure
+            run_pipeline, "run_logged_step", side_effect=failure
         ) as run:
             with self.assertRaises(subprocess.CalledProcessError) as raised:
                 run_pipeline.main()
         self.assertIs(raised.exception, failure)
         run.assert_called_once()
-        self.assertIn("summarise_asvs.py", run.call_args.args[0][1])
-        self.assertEqual(run.call_args.kwargs, {"check": True})
+        self.assertIn("summarise_asvs.py", run.call_args.args[2][1])
+        self.assertEqual(run.call_args.kwargs, {"quiet": False})
 
     def test_read_count_failure_propagates(self) -> None:
         failure = subprocess.CalledProcessError(2, ["count_reads.py"])
@@ -1462,7 +1570,7 @@ class CliTests(unittest.TestCase):
             mock.patch.object(run_pipeline, "run_preprocess"),
             mock.patch.object(run_pipeline, "run_ampliseq"),
             mock.patch.object(run_pipeline, "start_progress_log"),
-            mock.patch.object(run_pipeline.subprocess, "run", side_effect=[
+            mock.patch.object(run_pipeline, "run_logged_step", side_effect=[
                 subprocess.CompletedProcess([], 0), failure,
             ]) as run,
         ):
@@ -1470,7 +1578,7 @@ class CliTests(unittest.TestCase):
                 run_pipeline.main()
         self.assertIs(raised.exception, failure)
         self.assertEqual(run.call_count, 2)
-        self.assertTrue(run.call_args.args[0][1].endswith("count_reads.py"))
+        self.assertTrue(run.call_args.args[2][1].endswith("count_reads.py"))
 
     def test_preprocess_failure_stops_before_ampliseq(self) -> None:
         argv = [

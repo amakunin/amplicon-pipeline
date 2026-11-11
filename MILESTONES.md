@@ -803,15 +803,33 @@ issues are resolved.
 ### M11f - Pipeline refinements [~]
 
 - Raw run FASTQs may be plain or gzip-compressed. Read counting detects gzip
-  by its file signature and handles either format; the original path is still
-  passed to Dorado.
-- All 8 preprocessing tests pass with
-  `python -m unittest discover -s tests -p test_preprocess_reads.py`;
-  README usage and `run_pipeline.py --help` document both formats.
+  by its file signature; Dorado receives the original path. README and CLI
+  help document both formats; all 8 preprocessing tests pass.
 - Non-dry runs log the command invocation and existing pipeline progress to
   timestamped `pipeline.log` after validation; resumed runs append. Dry-run
-  output remains side-effect-free. All 37 driver tests pass with
-  `python -m unittest discover -s tests -p test_scaffold.py`.
+  output remains side-effect-free. All 37 driver tests pass.
+
+**Pending: step logging**
+
+- In `run_pipeline.py`, use a shared launcher for recorded stages, per-target
+  input preparation, ASV aggregation and read-flow accounting. Leave step
+  scripts and their ordinary stdout/stderr output unchanged.
+- Write separate stdout and stderr logs under `output_dir/logs/`, named for
+  the step and target where applicable. Append on resumed runs and mark run
+  boundaries. By default also stream both outputs to the terminal; `--quiet`
+  suppresses step output there but keeps pipeline-level progress visible.
+- On a non-zero exit, retain the original output, report the failed step, exit
+  code and stderr log path in the terminal and timestamped `pipeline.log`, and
+  stop the pipeline. Preserve existing stage success, cleanup and completion
+  record behavior; dry-run must not create output or logs.
+- Nextflow's LSF profile is already supported. Scheduler-managed job logging
+  is separate future work: consider `{step}.{%J}.[o|e]` for LSF job logs,
+  distinct from launcher logs; do not implement LSF job logging in this step.
+- Update the README and focused driver tests for both streams, quiet and
+  normal terminal behavior, append/restart, failure propagation and dry-run.
+  Verify streaming does not deadlock on large output and does not alter
+  fingerprint inventories.
+- **Review gate:** developer reviews log layout and failure diagnostics.
 
 ## M12 - Summary plots
 

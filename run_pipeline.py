@@ -443,6 +443,11 @@ def preprocess_fingerprints(
             key: shlex.split(options.get(key, ""))
             for key in ("porechop_abi_options", "chopper_options")
         },
+        **{
+            key: True
+            for key in ("skip_porechop_abi", "skip_chopper")
+            if options.get(key, False)
+        },
     }
     for key, value in (
         ("config", effective_config),

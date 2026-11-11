@@ -83,9 +83,11 @@ Sample summaries and plotting remain placeholders.
 - **Shared preprocessing.** Every target samplesheet uses `preprocessed/`
   FASTQs and preserves upstream exclusion reasons. Empty processed FASTQs
   are passed to ampliseq; configurations skip its Porechop ABI and Chopper.
+  Shared preprocessing can independently skip either tool; skipped counts
+  repeat the input count.
 - **Configuration.** Relative resource paths resolve against the user's config
   directory. `pipeline.yaml` holds `demux`, optional shared `preprocess` tool
-  option strings, `ampliseq.common`,
+  skip flags and option strings, `ampliseq.common`,
   `ampliseq.targets` and QC settings in `summary.common`/`summary.targets`,
   plus shared `threads`. Ampliseq targets define execution order and override
   common native parameters by key, without recursive merging or concatenation.

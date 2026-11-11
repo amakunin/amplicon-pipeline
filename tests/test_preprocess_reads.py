@@ -13,6 +13,73 @@ from scripts.preprocess_reads import count_fastq_reads, preprocess_reads, run_ch
 
 
 class PreprocessReadsTests(unittest.TestCase):
+    def test_independent_tool_skips_preserve_reads_and_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demux = root / "demux"
+            demux.mkdir()
+            fastq = b"@read\nACGT\n+\nIIII\n"
+            source = demux / "barcode02_barcode89.fastq.gz"
+            self.write_fastq(source, fastq * 3)
+            self.write_fastq(demux / "barcode08_barcode64.fastq.gz", b"")
+            samples = [
+                self.sample("sample", "02", "89"),
+                self.sample("empty", "08", "64"),
+                self.sample("missing", "09", "01"),
+            ]
+
+            def porechop(command, **kwargs):
+                input_path = Path(command[command.index("-i") + 1])
+                output_path = Path(command[command.index("-o") + 1])
+                with gzip.open(input_path, "rb") as handle:
+                    self.assertEqual(handle.read(), fastq * 3)
+                self.write_fastq(output_path, fastq * 2)
+
+            def chopper(input_path, output_path, options, threads):
+                with gzip.open(input_path, "rb") as handle:
+                    contents = handle.read()
+                self.write_fastq(output_path, contents[:-len(fastq)])
+
+            for skip_porechop in (False, True):
+                for skip_chopper in (False, True):
+                    with self.subTest(porechop=skip_porechop, chopper=skip_chopper):
+                        output = root / f"output-{skip_porechop}-{skip_chopper}"
+                        config = {
+                            "threads": 1, "demux": {"method": "illumina"},
+                            "preprocess": {
+                                "skip_porechop_abi": skip_porechop,
+                                "skip_chopper": skip_chopper,
+                            },
+                        }
+                        with (
+                            patch("scripts.preprocess_reads.load_config", return_value=(config, {})),
+                            patch("scripts.preprocess_reads.read_manifest", return_value=samples),
+                            patch("scripts.preprocess_reads.subprocess.run", side_effect=porechop) as run,
+                            patch("scripts.preprocess_reads.run_chopper", side_effect=chopper) as pipe,
+                        ):
+                            preprocess_reads(root / "manifest.tsv", root, demux, output, True)
+                        self.assertEqual(run.call_count, int(not skip_porechop))
+                        self.assertEqual(pipe.call_count, int(not skip_chopper))
+                        porechop_count = 3 if skip_porechop else 2
+                        final_count = porechop_count if skip_chopper else porechop_count - 1
+                        with gzip.open(output / source.name, "rb") as handle:
+                            self.assertEqual(handle.read(), fastq * final_count)
+                        if skip_chopper:
+                            copied = source if skip_porechop else (
+                                output / "work/barcode02_barcode89/porechop.fastq.gz"
+                            )
+                            self.assertEqual((output / source.name).read_bytes(), copied.read_bytes())
+                        self.assertEqual(
+                            (output / "read_counts.tsv").read_text(),
+                            "sample_id\tinput_reads\tporechop_reads\tchopper_reads\n"
+                            f"sample\t3\t{porechop_count}\t{final_count}\n"
+                            "empty\t0\t\t\nmissing\t\t\t\n",
+                        )
+                        self.assertEqual(
+                            (output / "excluded_samples.tsv").read_text(),
+                            "sample_id\treason\nempty\tempty_fastq\nmissing\tno_demux_file\n",
+                        )
+
     def test_preprocesses_each_nonempty_sample_once_and_records_exclusions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

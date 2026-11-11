@@ -521,6 +521,13 @@ class CommandRestartTests(unittest.TestCase):
                 run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
             )
             config["preprocess"] = {}
+            default_fingerprints = run_pipeline.preprocess_fingerprints(config, paths, command)
+            config["preprocess"] = {"skip_porechop_abi": False, "skip_chopper": False}
+            self.assertEqual(
+                run_pipeline.preprocess_fingerprints(config, paths, command),
+                default_fingerprints,
+            )
+            config["preprocess"] = {}
             config["threads"] += 1
             self.assertNotEqual(
                 run_pipeline.preprocess_fingerprints(config, paths, command), baseline,
@@ -550,9 +557,21 @@ class CommandRestartTests(unittest.TestCase):
                     side_effect=AssertionError("fast restart hashed a file"),
                 ):
                     run_pipeline.run_preprocess(config, args, paths)
+                    for key in ("skip_porechop_abi", "skip_chopper"):
+                        config["preprocess"] = {key: True}
+                        run_pipeline.run_preprocess(config, args, paths)
+                config["preprocess"] = {}
                 args.check_integrity = True
                 before = run_pipeline.output_fingerprints(output)
                 record_bytes = record.read_bytes()
+                for key in ("skip_porechop_abi", "skip_chopper"):
+                    with self.subTest(skip=key):
+                        config["preprocess"] = {key: True}
+                        with self.assertRaisesRegex(SystemExit, "inputs or configuration changed"):
+                            run_pipeline.run_preprocess(config, args, paths)
+                        self.assertEqual(run_pipeline.output_fingerprints(output), before)
+                        self.assertEqual(record.read_bytes(), record_bytes)
+                config["preprocess"] = {}
                 reads.write_bytes(b"changed")
                 with self.assertRaisesRegex(SystemExit, "refusing to overwrite"):
                     run_pipeline.run_preprocess(config, args, paths)

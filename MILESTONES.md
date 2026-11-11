@@ -784,6 +784,22 @@ issues are resolved.
   checks pass. Rerun with `python -m unittest discover -s tests -v`.
 - **Review gate:** review combined path refactor before further M11 changes.
 
+### M11e - Configurable preprocessing skips [x]
+
+- `preprocess.skip_porechop_abi` and `preprocess.skip_chopper` independently
+  skip their tools; both default to false. Skipped tools pass reads through and
+  repeat their input counts. Missing and empty sample handling is unchanged.
+- Preprocessing fingerprints include each true skip flag. Omitted and false
+  retain the previous runtime fingerprint; strict checking rejects changed
+  flags, while fast retained reuse remains inventory-only.
+- In the pipeline Conda environment (Python 3.12.16), all 7 preprocessing
+  tests and 36 driver tests pass.
+- All four fixture configurations (both skipped, either skipped, neither
+  skipped) were validated. Read-flow counts match preprocessing counts,
+  skipped stages preserve counts and reads, missing-sample exclusions remain,
+  and both-skipped FASTQs match demultiplexed FASTQs byte-for-byte. Target
+  completion records and ASV/read-flow summaries were produced.
+
 ## M12 - Summary plots
 
 [ ]

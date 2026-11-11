@@ -108,14 +108,18 @@ already exist; preprocessing does not overwrite prior outputs or resume a
 partial run. Optional `preprocess.porechop_abi_options` and
 `preprocess.chopper_options` in `pipeline.yaml` are passed as shell-style
 argument strings; omitted or empty values use tool defaults. Both tools use
-the shared `threads` value.
-Standalone `--keep-intermediates` retains `preprocessed/work/`; otherwise it
-is removed only after all samples succeed. Failed preprocessing retains work.
+the shared `threads` value. Set `preprocess.skip_porechop_abi` or
+`preprocess.skip_chopper` to `true` to skip either tool independently; omitted
+flags default to `false`. These settings are separate from ampliseq's skips.
+Standalone `--keep-intermediates` retains `preprocessed/work/` when created;
+otherwise it is removed only after all samples succeed. Failed preprocessing
+retains work.
 After all samples succeed, `preprocessed/read_counts.tsv` records
 `sample_id`, `input_reads`, `porechop_reads` and `chopper_reads` in manifest
 order, independently of retention mode. Missing inputs have blank counts;
 empty inputs have input count 0 and blank downstream counts because tools
-were not run. Measured empty tool outputs have count 0.
+were not run. A skipped tool repeats its input count; measured empty tool
+outputs have count 0.
 
 Input preparation requires `--preprocessed-dir`, not `--demux-dir`. It
 copies upstream exclusion reasons and writes samplesheets pointing to the

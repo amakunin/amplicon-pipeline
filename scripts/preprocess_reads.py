@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Porechop ABI and Chopper once per expected demultiplexed sample."""
+"""Preprocess expected demultiplexed samples with Porechop ABI and Chopper."""
 
 import argparse
 import csv
@@ -111,20 +111,28 @@ def preprocess_reads(
     work = output_dir / "work"
     for filename, reads, row in included:
         output = output_dir / filename
-        sample_work = work / filename.removesuffix(".fastq.gz")
-        sample_work.mkdir(parents=True)
-        porechop_output = sample_work / "porechop.fastq.gz"
-        subprocess.run(
-            [
-                "porechop_abi", *porechop_options,
-                "-t", threads, "-i", str(reads), "-o", str(porechop_output),
-                "--temp_dir", str(sample_work / "tmp"),
-            ],
-            check=True,
-        )
-        row["porechop_reads"] = str(count_fastq_reads(porechop_output))
-        run_chopper(porechop_output, output, chopper_options, threads)
-        row["chopper_reads"] = str(count_fastq_reads(output))
+        if preprocess.get("skip_porechop_abi", False):
+            porechop_output = reads
+            row["porechop_reads"] = row["input_reads"]
+        else:
+            sample_work = work / filename.removesuffix(".fastq.gz")
+            sample_work.mkdir(parents=True)
+            porechop_output = sample_work / "porechop.fastq.gz"
+            subprocess.run(
+                [
+                    "porechop_abi", *porechop_options,
+                    "-t", threads, "-i", str(reads), "-o", str(porechop_output),
+                    "--temp_dir", str(sample_work / "tmp"),
+                ],
+                check=True,
+            )
+            row["porechop_reads"] = str(count_fastq_reads(porechop_output))
+        if preprocess.get("skip_chopper", False):
+            shutil.copyfile(porechop_output, output)
+            row["chopper_reads"] = row["porechop_reads"]
+        else:
+            run_chopper(porechop_output, output, chopper_options, threads)
+            row["chopper_reads"] = str(count_fastq_reads(output))
     with (output_dir / "read_counts.tsv").open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,

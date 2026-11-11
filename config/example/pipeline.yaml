@@ -9,6 +9,8 @@ demux:
 # Optional tool-specific arguments; empty strings use tool defaults.
 # Preprocessing is shared across targets and uses the top-level threads value.
 preprocess:
+  skip_porechop_abi: false
+  skip_chopper: false
   porechop_abi_options: ""
   chopper_options: "-q 16"
 

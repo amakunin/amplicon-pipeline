@@ -814,10 +814,16 @@ issues are resolved.
 - In `run_pipeline.py`, use a shared launcher for recorded stages, per-target
   input preparation, ASV aggregation and read-flow accounting. Leave step
   scripts and their ordinary stdout/stderr output unchanged.
+- Record each launched step's shell-escaped command in timestamped
+  `pipeline.log`; skipped stages have no command entry.
 - Write separate stdout and stderr logs under `output_dir/logs/`, named for
   the step and target where applicable. Append on resumed runs and mark run
   boundaries. By default also stream both outputs to the terminal; `--quiet`
   suppresses step output there but keeps pipeline-level progress visible.
+- End-to-end observation: Nextflow is invoked with `-ansi-log false` to
+  suppress its progress display. Dorado has no known option to disable its
+  progress tracking, so that output remains in launcher logs and, unless
+  `--quiet`, the terminal.
 - On a non-zero exit, retain the original output, report the failed step, exit
   code and stderr log path in the terminal and timestamped `pipeline.log`, and
   stop the pipeline. Preserve existing stage success, cleanup and completion

@@ -76,6 +76,10 @@ def run_logged_step(
     with stdout_path.open("ab") as stdout_log, stderr_path.open("ab") as stderr_log:
         write_step_log_boundary(stdout_log, f"Run started: {started}")
         write_step_log_boundary(stderr_log, f"Run started: {started}")
+        if PROGRESS_LOG is not None:
+            write_progress_log(
+                PROGRESS_LOG, f"Command for {name}: {shlex.join(command)}",
+            )
         process = subprocess.Popen(
             command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             bufsize=0,
@@ -359,7 +363,10 @@ def ampliseq_command(
 ) -> list[str]:
     return [
         "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
-        *(["-resume"] if keep_intermediates else []),
+        "-ansi-log", "false",
+        *(
+            ["-resume"] if keep_intermediates else []
+        ),
         "-profile", profile,
         "-work-dir", str(paths.work),
         "-c", str(paths.executor_config),

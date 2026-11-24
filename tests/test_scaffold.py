@@ -274,6 +274,9 @@ class CommandRestartTests(unittest.TestCase):
             stage_output.mkdir()
             (stage_output / "reads.fastq").write_bytes(b"reads")
             fingerprints = run_pipeline.output_fingerprints(stage_output)
+            progress_log = output / "pipeline.log"
+            run_pipeline.PROGRESS_LOG = progress_log
+            self.addCleanup(setattr, run_pipeline, "PROGRESS_LOG", None)
             stdout = io.StringIO()
             stderr = io.StringIO()
             command = [
@@ -281,18 +284,18 @@ class CommandRestartTests(unittest.TestCase):
                 "import sys; sys.stdout.write('first out\\n'); "
                 "sys.stderr.write('first err\\n')",
             ]
+            second_command = [
+                sys.executable, "-c",
+                "import sys; sys.stdout.write('second out\\n'); "
+                "sys.stderr.write('second err\\n')",
+            ]
             with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
                 run_pipeline.run_logged_step(
                     "test step", "test.target", command, output, quiet=False,
                 )
                 run_pipeline.run_logged_step(
-                    "test step", "test.target",
-                    [
-                        sys.executable, "-c",
-                        "import sys; sys.stdout.write('second out\\n'); "
-                        "sys.stderr.write('second err\\n')",
-                    ],
-                    output, quiet=True,
+                    "test step", "test.target", second_command, output,
+                    quiet=True,
                 )
 
             self.assertEqual(stdout.getvalue(), "first out\n")
@@ -307,6 +310,16 @@ class CommandRestartTests(unittest.TestCase):
             self.assertIn(b"second err\n", stderr_log)
             self.assertEqual(stdout_log.count(b"Run finished:"), 2)
             self.assertEqual(stderr_log.count(b"Run finished:"), 2)
+            progress_entries = progress_log.read_text().splitlines()
+            self.assertEqual(len(progress_entries), 2)
+            self.assertTrue(any(
+                f"Command for test step: {shlex.join(command)}" in line
+                for line in progress_entries
+            ))
+            self.assertTrue(any(
+                f"Command for test step: {shlex.join(second_command)}" in line
+                for line in progress_entries
+            ))
             self.assertEqual(
                 run_pipeline.output_fingerprints(stage_output), fingerprints,
             )
@@ -864,6 +877,7 @@ class CommandRestartTests(unittest.TestCase):
                 ampliseq_command(paths, "local"),
                 [
                     "nextflow", "run", "nf-core/ampliseq", "-r", "3.0.0",
+                    "-ansi-log", "false",
                     "-profile", "local",
                     "-work-dir", str(target_dir / "work"),
                     "-c", str(FIXTURE / "config/ampliseq.config"),

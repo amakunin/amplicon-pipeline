@@ -130,7 +130,8 @@ Both example configurations skip Porechop ABI and Chopper inside ampliseq.
 
 ```text
 output_dir/
-  pipeline.log              # timestamped pipeline invocation and progress; appended on resume
+  pipeline.log              # timestamped invocation, progress and step commands
+                            # appended on resume
   logs/
     demultiplexing.o        # step stdout; paired .e file contains stderr
     preprocessing.o
@@ -272,9 +273,10 @@ even if empty. No fingerprints or completion records are computed/read/written,
 and no stages skip. Successful runs still clean stage-owned scratch.
 Dry-run does not hash, create outputs or reject an existing output directory.
 Startup, input-validation and stage messages are flushed to the terminal.
-After startup validation, non-dry runs write these timestamped progress messages
-and the command-line invocation to `pipeline.log`. Resumed runs append to the
-same file. Step stdout and stderr are also written separately under `logs/`,
+After startup validation, non-dry runs write timestamped progress messages,
+the command-line invocation and each launched step's shell-escaped command to
+`pipeline.log`. Resumed runs append to the same file. Step stdout and stderr
+are also written separately under `logs/`,
 using `{step}.{target}.o` and `{step}.{target}.e` names (the target part is
 omitted when not applicable); resumed runs append with timestamped run
 boundaries. Both streams are shown in the terminal by default. `--quiet`

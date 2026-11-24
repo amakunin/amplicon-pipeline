@@ -159,6 +159,13 @@ Sample summaries and plotting remain placeholders.
 
 ## Using the environment with a coding agent
 
+Before running Python tests, scripts or checks, discover and use this
+repository's Conda environment. Run `conda env list` and `conda info --base`,
+then invoke Python through the absolute Conda executable and environment
+prefix. Do not run bare `python` or `python3`, or fall back to a system
+interpreter if the environment cannot be identified; stop and ask the
+developer for the environment prefix and Conda executable path.
+
 Selecting the environment with VS Code's **Python: Select Interpreter** command
 configures Python editor tooling, but does not guarantee activation for agent
 shell commands. Activating it in a separate terminal is also not sufficient.
@@ -185,7 +192,8 @@ environment prefixes out of committed configuration and documentation.
 ## Testing
 
 ```bash
-python -m unittest discover -s tests -v
+/path/to/conda/bin/conda run --no-capture-output -p /path/to/env \
+  python -m unittest discover -s tests -v
 bash -n scripts/demux_hybrid.sh scripts/demux_illumina.sh
 ```
 
